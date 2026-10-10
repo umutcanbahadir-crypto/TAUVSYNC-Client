@@ -1,0 +1,34 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+.idea/
+.vscode/
+*.egg-info/
+dist/
+build/
+*.log
+.DS_Store
+Thumbs.db
+# No secrets or local machine configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.key
+id_ed25519*
+id_rsa*
+*.dpapi
+*.cookie
+*cookies*.txt
+.tauvsync/
+.tauvsync-client.json
+settings.local.json
+# Projects do not belong in this installer repository
+*.kicad_pro
+*.kicad_sch
+*.kicad_pcb

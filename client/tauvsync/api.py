@@ -1,0 +1,185 @@
+"""HTTPS client for Prism's invitation-only TAUVSYNC API.
+
+Cookies and passwords are kept ONLY in memory. The server validates the user's
+existing Prism account, so this client doesn't create a new credential system.
+"""
+from __future__ import annotations
+
+import http.cookiejar
+import json
+from pathlib import Path
+import re
+import ssl
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+
+
+class APIError(RuntimeError):
+    def __init__(self, message: str, status: int = 0):
+        super().__init__(message)
+        self.status = status
+
+
+class PrismAPI:
+    def __init__(self, base_url: str, *, timeout: int = 45):
+        parsed = urllib.parse.urlsplit(base_url.rstrip("/"))
+        if parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in ("", "/"):
+            raise ValueError("Enter the server's HTTPS origin, e.g. https://sync.example.com")
+        if parsed.scheme != "https" and not (
+            parsed.scheme == "http" and parsed.hostname in ("127.0.0.1", "localhost", "::1")
+        ):
+            raise ValueError("TAUVSYNC requires HTTPS except on localhost")
+        if not parsed.hostname:
+            raise ValueError("Invalid server URL")
+        self.base = base_url.rstrip("/")
+        self.timeout = timeout
+        self.cookies = http.cookiejar.CookieJar()
+        self.opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(self.cookies),
+            _SameOriginRedirect(self.base),
+        )
+
+    def _request(self, path: str, *, method: str = "GET", data=None, headers=None):
+        request = urllib.request.Request(
+            self.base + path, data=data, headers=headers or {}, method=method
+        )
+        try:
+            return self.opener.open(request, timeout=self.timeout)
+        except urllib.error.HTTPError as exc:
+            error = f"Request failed (HTTP {exc.code})"
+            try:
+                payload = json.loads(exc.read(16384).decode("utf-8"))
+                detail = payload.get("detail", error)
+                if isinstance(detail, str):
+                    error = detail
+            except (ValueError, UnicodeError):
+                pass
+            raise APIError(error, exc.code) from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise APIError(f"Connection failed: {exc}") from exc
+
+    def _json(self, path: str, *, method: str = "GET", payload=None):
+        data = None if payload is None else json.dumps(payload).encode("utf-8")
+        with self._request(
+            path, method=method, data=data,
+            headers={"Content-Type": "application/json"} if payload is not None else None,
+        ) as response:
+            return json.load(response)
+
+    def login(self, email: str, password: str) -> dict:
+        # Do not retain the password after making the request.
+        result = self._json("/api/auth/login/password", method="POST", payload={
+            "email": email, "password": password, "remember_me": False,
+        })
+        if result.get("must_change_password"):
+            raise APIError("Change your password using the Prism website first")
+        return result
+
+    def logout(self):
+        try:
+            self._json("/api/auth/logout", method="POST", payload={})
+        finally:
+            self.cookies.clear()
+
+    def projects(self) -> list[dict]:
+        return self._json("/api/tauvsync/projects")
+
+    def revisions(self, project_id: str) -> list[dict]:
+        return self._json(f"/api/tauvsync/projects/{_id(project_id)}/revisions")
+
+    def download(self, project_id: str, revision: int, target: Path, *, max_bytes=512 * 1024 ** 2):
+        path = f"/api/tauvsync/projects/{_id(project_id)}/revisions/{int(revision)}/download"
+        target = Path(target)
+        try:
+            with self._request(path) as response, target.open("xb") as dest:
+                size = 0
+                while chunk := response.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise APIError("Download exceeds 512 MiB")
+                    dest.write(chunk)
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+
+    def create(self, name: str, archive: Path) -> dict:
+        """Create a cloud project from an existing complete KiCad project ZIP."""
+        name = name.strip()
+        if not name or len(name) > 200:
+            raise ValueError("Enter a project name (at most 200 characters)")
+        archive = Path(archive)
+        if archive.stat().st_size > 512 * 1024 ** 2:
+            raise APIError("Upload exceeds 512 MiB")
+        boundary = "tauvsync-" + uuid.uuid4().hex
+        header = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="name"\r\n\r\n'
+        ).encode() + name.encode("utf-8") + (
+            f"\r\n--{boundary}\r\n"
+            'Content-Disposition: form-data; name="archive"; filename="project.zip"\r\n'
+            "Content-Type: application/zip\r\n\r\n"
+        ).encode()
+        footer = f"\r\n--{boundary}--\r\n".encode()
+        size = archive.stat().st_size
+
+        def chunks():
+            yield header
+            with archive.open("rb") as inp:
+                while piece := inp.read(1024 * 1024):
+                    yield piece
+            yield footer
+
+        with self._request("/api/tauvsync/projects", method="POST",
+                           data=chunks(), headers={
+                               "Content-Type": f"multipart/form-data; boundary={boundary}",
+                               "Content-Length": str(len(header) + size + len(footer)),
+                           }) as response:
+            return json.load(response)
+
+    def publish(self, project_id: str, base_revision: int, archive: Path) -> dict:
+        """Stream multipart body rather than loading large ZIPs into RAM."""
+        archive = Path(archive)
+        boundary = "tauvsync-" + uuid.uuid4().hex
+        header = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="base_revision"\r\n\r\n'
+            f"{int(base_revision)}\r\n"
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="archive"; filename="project.zip"\r\n'
+            "Content-Type: application/zip\r\n\r\n"
+        ).encode()
+        footer = f"\r\n--{boundary}--\r\n".encode()
+        size = archive.stat().st_size
+        if size > 512 * 1024 ** 2:
+            raise APIError("Upload exceeds 512 MiB")
+        def chunks():
+            yield header
+            with archive.open("rb") as inp:
+                while piece := inp.read(1024 * 1024):
+                    yield piece
+            yield footer
+        path = f"/api/tauvsync/projects/{_id(project_id)}/revisions"
+        with self._request(path, method="POST", data=chunks(), headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Content-Length": str(len(header) + size + len(footer)),
+        }) as response:
+            return json.load(response)
+
+
+class _SameOriginRedirect(urllib.request.HTTPRedirectHandler):
+    def __init__(self, origin: str):
+        self.origin = urllib.parse.urlsplit(origin)
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        parsed = urllib.parse.urlsplit(newurl)
+        if (parsed.scheme, parsed.netloc) != (self.origin.scheme, self.origin.netloc):
+            raise APIError("Cross-origin redirect refused")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _id(project_id: str) -> str:
+    if not re.fullmatch(r"[a-f0-9]{32}", project_id):
+        raise ValueError("Invalid project ID")
+    return project_id
