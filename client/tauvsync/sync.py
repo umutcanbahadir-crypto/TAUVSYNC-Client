@@ -38,6 +38,21 @@ class SyncConflict(RuntimeError):
     pass
 
 
+def unavailable_cloud_status(remote: dict | None) -> str | None:
+    """A missing Prism registration is not an instruction to erase local data.
+
+    The backend keeps Git history after deletion in Prism. The sync client
+    must stop publishing and visibly retain the checkout for recovery.
+    """
+    if remote is None:
+        return "No longer available in cloud; local copy preserved (sync paused)"
+    if remote.get("cloud_state") == "missing_prism":
+        return "Deleted in Prism; local copy preserved (sync paused)"
+    if remote.get("cloud_state") == "unregistered":
+        return "Not registered in Prism; local copy preserved (sync paused)"
+    return None
+
+
 def ignored(name: str, *, is_dir: bool = False) -> bool:
     lower = name.casefold()
     if lower in (".git", ".tauvsync", "__pycache__", ".ds_store", "thumbs.db"):
@@ -361,6 +376,10 @@ class SyncEngine:
         """One deterministic sync tick; caller catches network errors and retries."""
         with self.lock:
             record = self._record(project_id)
+            unavailable = unavailable_cloud_status(remote)
+            if unavailable:
+                self.status[project_id] = unavailable
+                return unavailable
             folder = self.folder(project_id)
             stats = stat_manifest(folder)
             now = self.clock()

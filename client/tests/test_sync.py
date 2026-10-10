@@ -7,7 +7,7 @@ from zipfile import ZipFile, ZipInfo
 
 from client.tauvsync.api import PrismAPI
 from client.tauvsync.sync import (
-    SyncEngine, SyncUnsafe, ignored, package_project, safe_extract,
+    SyncEngine, SyncUnsafe, ignored, package_project, safe_extract, unavailable_cloud_status,
 )
 
 
@@ -17,6 +17,7 @@ class FakeAPI:
         self.history = {1: "original"}
         self.head = 1
         self.uploads = []
+        self.extra_files = {}
 
     def project(self):
         return {"id": self.id, "name": "Underwater Modem", "head_revision": self.head}
@@ -27,6 +28,8 @@ class FakeAPI:
             z.writestr("Modem/Modem.kicad_pro", "{}")
             z.writestr("Modem/Modem.kicad_sch", self.history[rev])
             z.writestr("Modem/Modem.kicad_prl", "ephemeral-local-preferences")
+            for name, data in self.extra_files.get(rev, {}).items():
+                z.writestr(name, data)
 
     def publish(self, pid, base, archive):
         assert pid == self.id
@@ -41,9 +44,10 @@ class FakeAPI:
             self.head = revision
         return {"number": revision, "status": status}
 
-    def remote_update(self, value):
+    def remote_update(self, value, *, extra_files=None):
         revision = max(self.history) + 1
         self.history[revision] = value
+        self.extra_files[revision] = extra_files or {}
         self.head = revision
         return revision
 
@@ -120,6 +124,51 @@ class SyncEngineTests(unittest.TestCase):
         self.assertEqual(self.engine._record(self.api.id)["base_revision"], 2)
         backups = list(self.engine.backups.iterdir())
         self.assertEqual((backups[0] / "Modem/Modem.kicad_sch").read_text(), "my work")
+
+
+    def test_remote_file_deletion_is_applied_after_editors_close(self):
+        rev2 = self.api.remote_update("second", extra_files={
+            "Modem/obsolete.txt": "remove-me",
+            "Modem/subdir/old.txt": "old",
+        })
+        self.engine.poll(self.api.id, self.api.project(), editors_open=False)
+        obsolete = self.pro.parent / "obsolete.txt"
+        nested = self.pro.parent / "subdir" / "old.txt"
+        self.assertTrue(obsolete.exists())
+        self.assertTrue(nested.exists())
+        rev3 = self.api.remote_update("third", extra_files={})
+        self.assertIn("waiting for KiCad editors", self.engine.poll(
+            self.api.id, self.api.project(), editors_open=True
+        ))
+        self.assertTrue(obsolete.exists())
+        self.assertIn("Auto-updated", self.engine.poll(
+            self.api.id, self.api.project(), editors_open=False
+        ))
+        self.assertEqual(self.engine._record(self.api.id)["base_revision"], rev3)
+        self.assertFalse(obsolete.exists())
+        self.assertFalse(nested.exists())
+        self.assertFalse((self.pro.parent / "subdir").exists())
+        self.assertTrue(any(
+            (d / "Modem/obsolete.txt").exists() for d in self.engine.backups.iterdir()
+        ))
+
+    def test_server_deleted_project_pauses_sync_and_preserves_checkout(self):
+        self.schematic.write_text("local unsent changes")
+        project = {**self.api.project(), "cloud_state": "missing_prism"}
+        result = self.engine.poll(self.api.id, project, editors_open=False)
+        self.assertIn("Deleted in Prism", result)
+        self.assertEqual(self.api.uploads, [])
+        self.assertEqual(self.schematic.read_text(), "local unsent changes")
+        self.assertEqual(self.engine._record(self.api.id)["base_revision"], 1)
+        self.assertEqual(unavailable_cloud_status(None).startswith("No longer"), True)
+
+    def test_unregistered_project_never_reuploads(self):
+        project = {**self.api.project(), "cloud_state": "unregistered"}
+        self.schematic.write_text("unsent")
+        self.assertIn("Not registered", self.engine.poll(
+            self.api.id, project, editors_open=False,
+        ))
+        self.assertEqual(self.api.uploads, [])
 
     def test_offline_publish_retains_local_changes(self):
         class Offline(Exception):
