@@ -18,7 +18,7 @@ import time
 
 from .api import APIError, PrismAPI
 from .credentials import CredentialStoreUnavailable, store_login, load_login, forget_login
-from .sync import SyncEngine, SyncUnsafe, editor_running
+from .sync import SyncEngine, SyncUnsafe, editor_running, unavailable_cloud_status
 from .ssh_tunnel import TunnelConfig, ManagedSshTunnel, TunnelError
 
 
@@ -336,15 +336,37 @@ def run(project_path: str | None = None):
                 self.tree.insert(parent, "end", iid=key, text="📁 " + folder["name"],
                                  values=("", ""))
                 mapping[folder["id"]] = key
+            local_projects = self.engine.local_projects() if self.engine else {}
+            cloud_ids = set()
             for project in self.remote:
                 fid = prism_folders.get(project.get("prism_project_id"))
                 parent = mapping.get(fid, "")
                 pid = project["id"]
-                local = self.engine and pid in self.engine.local_projects()
-                details = self.engine.status.get(pid, "Not downloaded") if local else "Cloud only"
+                cloud_ids.add(pid)
+                unavailable = unavailable_cloud_status(project)
+                if unavailable:
+                    details = unavailable
+                elif pid in local_projects:
+                    details = self.engine.status.get(pid, "Downloaded; waiting for sync")
+                else:
+                    details = "Cloud only"
                 key = "project:" + pid
-                self.tree.insert(parent, "end", iid=key, text=project["name"],
+                name = ("[Removed from Prism] " if unavailable else "") + project["name"]
+                self.tree.insert(parent, "end", iid=key, text=name,
                                  values=("r" + str(project["head_revision"]), details))
+            # Projects absent from the remote list must remain visible as LOCAL
+            # copies. Never delete them just because access or listing changed.
+            missing = sorted(set(local_projects) - cloud_ids)
+            if missing:
+                group = "local:unavailable"
+                self.tree.insert("", "end", iid=group,
+                                 text="Local copies no longer available in cloud", values=("", ""))
+                for pid in missing:
+                    record = local_projects[pid]
+                    self.tree.insert(group, "end", iid="project:" + pid,
+                        text=record.get("name") or pid,
+                        values=("r" + str(record.get("base_revision", "?")),
+                                unavailable_cloud_status(None)))
             if previous and self.tree.exists("project:" + previous):
                 self.tree.selection_set("project:" + previous)
 
@@ -356,8 +378,21 @@ def run(project_path: str | None = None):
             return next((p for p in self.remote if p["id"] == self.selected_id), None)
 
         def _open_project(self):
+            if not self.engine or not self.selected_id:
+                return
+            pid = self.selected_id
             project = self._remote_selected()
-            if not project or not self.engine:
+            unavailable = unavailable_cloud_status(project)
+            if unavailable:
+                if pid not in self.engine.local_projects():
+                    self.status.set(unavailable + "; no managed checkout to open")
+                    return
+                def open_preserved():
+                    record = self.engine._record(pid)
+                    path = self.engine.folder(pid) / record["project_file"]
+                    open_kicad(path)
+                    return ("message", "Opened preserved local project; cloud sync is paused")
+                self._background(open_preserved)
                 return
             def task():
                 path = self.engine.checkout(project)
@@ -369,11 +404,15 @@ def run(project_path: str | None = None):
             if not self.engine or not self.selected_id:
                 return
             project = self._remote_selected()
-            if not project:
+            unavailable = unavailable_cloud_status(project)
+            if unavailable:
+                self.status.set(unavailable)
                 return
+            pid = self.selected_id
             def task():
                 return ("message", self.engine.poll(
-                    self.selected_id, project, editors_open=editor_running()
+                    pid, project, editors_open=editor_running(),
+                    allow_publish=bool(self.user and self.user.get("role") in ("designer", "admin")),
                 ))
             self._background(task)
 
@@ -381,7 +420,11 @@ def run(project_path: str | None = None):
             if not self.engine or not self.selected_id:
                 return
             project = self._remote_selected()
-            if not project or not self.engine._record(self.selected_id).get("conflict"):
+            unavailable = unavailable_cloud_status(project)
+            if unavailable:
+                self.status.set(unavailable)
+                return
+            if not self.engine._record(self.selected_id).get("conflict"):
                 self.status.set("No unresolved conflict for this project.")
                 return
             if not messagebox.askyesno("Preserve local work", "Publish local files as a separate alternate revision? This will not overwrite the server's current design."):
@@ -393,7 +436,9 @@ def run(project_path: str | None = None):
             if not self.engine or not self.selected_id:
                 return
             project = self._remote_selected()
-            if not project:
+            unavailable = unavailable_cloud_status(project)
+            if unavailable:
+                self.status.set(unavailable)
                 return
             if not messagebox.askyesno("Use server revision",
                 "Keep a full local backup and replace your working folder with the server's latest revision? Close all KiCad editors first."):
@@ -412,8 +457,12 @@ def run(project_path: str | None = None):
                         projects = self.api.projects()
                         pmap = {p["id"]: p for p in projects}
                         for pid in self.engine.local_projects():
-                            if pid not in pmap:
-                                self._event("message", "Project no longer visible; local copy preserved")
+                            unavailable = unavailable_cloud_status(pmap.get(pid))
+                            if unavailable:
+                                self.engine.status[pid] = unavailable
+                                if self.last_status.get(pid) != unavailable:
+                                    self.last_status[pid] = unavailable
+                                    self._event("message", unavailable)
                                 continue
                             try:
                                 status = self.engine.poll(
