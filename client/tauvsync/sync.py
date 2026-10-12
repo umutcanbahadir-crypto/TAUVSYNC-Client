@@ -47,9 +47,9 @@ def unavailable_cloud_status(remote: dict | None) -> str | None:
     if remote is None:
         return "No longer available in cloud; local copy preserved (sync paused)"
     if remote.get("cloud_state") == "missing_prism":
-        return "Deleted in Prism; local copy preserved (sync paused)"
+        return "Removed from TAUV cloud; local copy preserved (sync paused)"
     if remote.get("cloud_state") == "unregistered":
-        return "Not registered in Prism; local copy preserved (sync paused)"
+        return "Not registered in TAUV cloud; local copy preserved (sync paused)"
     return None
 
 
