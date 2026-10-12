@@ -30,6 +30,16 @@ jobs:
           python packaging/build_pcm.py
           python -m pip install jsonschema
           python packaging/validate_pcm.py dist/TAUVSYNC-KiCad10-2.0.1.zip
+      - name: Smoke-test the actual packaged Windows executable
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path "dist/TAUVSYNC.exe").Path
+          $proc = Start-Process -FilePath $exe -ArgumentList "--self-test" -Wait -PassThru
+          $log = Join-Path $env:LOCALAPPDATA "TAUVSYNC/logs/launcher.log"
+          if (Test-Path $log) { Get-Content $log }
+          if ($proc.ExitCode -ne 0) { throw "Frozen TAUV executable failed runtime test: exit code $($proc.ExitCode)" }
+          if (!(Test-Path $log) -or !(Select-String -Path $log -Pattern 'SELF-TEST OK' -Quiet)) { throw "Frozen executable did not complete its runtime self-test" }
       - name: Upload KiCad PCM test package
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
