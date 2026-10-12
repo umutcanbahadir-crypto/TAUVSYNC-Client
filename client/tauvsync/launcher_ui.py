@@ -10,6 +10,7 @@ import io
 from pathlib import Path
 import queue
 import threading
+import time
 from tkinter import filedialog, messagebox
 from typing import Any, Callable
 
@@ -22,6 +23,7 @@ from .credentials import load_login, store_login, forget_login, CredentialStoreU
 from .instance import AlreadyRunning, single_instance, focus_existing_window
 from .project_templates import create_cloud_project
 from .sync import SyncEngine, editor_running, unavailable_cloud_status
+from .workspace_data import next_available_name, reconcile_projects, latest_authors
 
 BG = "#08090b"
 CARD = "#0c0d10"
@@ -65,6 +67,13 @@ class Workspace(ctk.CTk):
         self.engine: SyncEngine | None = None
         self.user: dict = {}
         self.projects: list[dict] = []
+        self.authors: dict[tuple[str, int], str] = {}
+        self.thumbnail_cache: dict[tuple[str, int], bytes | None] = {}
+        self.thumbnail_images: dict[tuple[str, int, str], ctk.CTkImage] = {}
+        self.thumbnail_inflight: set[tuple[str, int]] = set()
+        self.thumbnail_attempts: dict[tuple[str, int], float] = {}
+        self.thumbnail_labels: dict[str, ctk.CTkLabel] = {}
+        self._render_signature = None
         self.selected_id: str | None = None
         self.paused = False
         self.connected = False
@@ -222,14 +231,23 @@ class Workspace(ctk.CTk):
                     self._set_status("Operation failed: " + str(event[1]))
                     messagebox.showerror("TAUV", str(event[1]), parent=self)
                 elif event[0] == "poll":
-                    self.projects = event[1]
+                    self.projects, self.authors = event[1], event[2]
+                    self.connection.configure(text="Connected")
                     self._draw_projects()
+                    if self.selected_id:
+                        self._update_details()
                 elif event[0] == "poll_error":
                     self.connection.configure(text="Offline")
                     self._set_status("Connection lost; saved local work remains untouched.")
                 elif event[0] == "thumbnail":
-                    if self.selected_id == event[1]:
-                        self._display_thumbnail(event[2])
+                    key, data = event[1], event[2]
+                    self.thumbnail_inflight.discard(key)
+                    self.thumbnail_cache[key] = data
+                    self._draw_projects(force=True)
+                    if self.selected_id == key[0]:
+                        selected = self._selected()
+                        if selected and int(selected.get("head_revision") or 0) == key[1]:
+                            self._display_thumbnail(data)
         except queue.Empty:
             pass
         if not self.stop.is_set():
@@ -252,16 +270,17 @@ class Workspace(ctk.CTk):
             api = PrismAPI(url)
             user = api.login(email, password)
             engine = SyncEngine(api, Path(folder))
-            projects = api.projects()
+            projects = reconcile_projects(api.projects(), engine.local_projects())
+            authors = latest_authors(api, projects, {})
             # Persist settings only after successful login and server discovery.
             save_preferences(url, folder, email, remember)
             if remember:
                 store_login(url, email, password)
             else:
                 forget_login()
-            return api, user, engine, projects
+            return api, user, engine, projects, authors
         def complete(result):
-            self.api, self.user, self.engine, self.projects = result
+            self.api, self.user, self.engine, self.projects, self.authors = result
             self.connected = True
             self.connection.configure(text=email + "  •  Connected")
             self.login_panel.pack_forget()
@@ -271,32 +290,81 @@ class Workspace(ctk.CTk):
             threading.Thread(target=self._poll_loop, daemon=True).start()
         self._task("Signing in to TAUV…", work, complete)
 
+    def _get_project_snapshot(self):
+        """Refresh metadata even while local synchronization is paused."""
+        remote = reconcile_projects(self.api.projects(), self.engine.local_projects())
+        authors = latest_authors(self.api, remote, self.authors)
+        return remote, authors
+
     def _poll_loop(self):
         while not self.stop.wait(5):
-            if not self.connected or self.paused or not self.api or not self.engine:
+            if not self.connected or not self.api or not self.engine:
                 continue
             try:
                 with self.io_lock:
-                    remote = self.api.projects()
-                    local = self.engine.local_projects()
-                    editors_open = editor_running()
-                    for project in remote:
-                        pid = project["id"]
-                        if pid in local:
-                            self.engine.poll(
-                                pid, project, editors_open=editors_open,
-                                allow_publish=self.user.get("role") in ("designer", "admin"),
-                            )
-                self.events.put(("poll", remote))
+                    remote, authors = self._get_project_snapshot()
+                    if not self.paused:
+                        local = self.engine.local_projects()
+                        managed = [
+                            p for p in remote if p["id"] in local
+                            and not unavailable_cloud_status(p)
+                        ]
+                        editors_open = editor_running() if managed else False
+                        for project in remote:
+                            if project["id"] in local:
+                                self.engine.poll(
+                                    project["id"], project, editors_open=editors_open,
+                                    allow_publish=self.user.get("role") in ("designer", "admin"),
+                                )
+                self.events.put(("poll", remote, authors))
             except Exception:
                 self.events.put(("poll_error", None))
 
-    def _draw_projects(self):
+    def _thumbnail_key(self, project: dict) -> tuple[str, int]:
+        return project["id"], int(project.get("head_revision") or 0)
+
+    def _thumbnail_image(self, project: dict, kind: str) -> ctk.CTkImage | None:
+        key = self._thumbnail_key(project)
+        data = self.thumbnail_cache.get(key)
+        if not data:
+            return None
+        image_key = key + (kind,)
+        if image_key in self.thumbnail_images:
+            return self.thumbnail_images[image_key]
+        try:
+            with Image.open(io.BytesIO(data)) as img:
+                img.thumbnail((180, 120) if kind == "detail" else (88, 56),
+                              Image.Resampling.LANCZOS)
+                bitmap = img.convert("RGBA").copy()
+            dims = bitmap.size
+            icon = ctk.CTkImage(light_image=bitmap, dark_image=bitmap, size=dims)
+            self.thumbnail_images[image_key] = icon
+            return icon
+        except (OSError, ValueError):
+            return None
+
+    def _request_thumbnail(self, project: dict):
+        if not self.api or unavailable_cloud_status(project):
+            return
+        prism_id = project.get("prism_project_id")
+        if not prism_id:
+            return
+        key = self._thumbnail_key(project)
+        if key in self.thumbnail_inflight:
+            return
+        # Missing thumbnails are retried after Prism's asynchronous rendering.
+        last = self.thumbnail_attempts.get(key, 0)
+        if key in self.thumbnail_cache and (
+                self.thumbnail_cache[key] is not None or time.monotonic() - last < 60):
+            return
+        self.thumbnail_attempts[key] = time.monotonic()
+        self.thumbnail_inflight.add(key)
+        threading.Thread(target=self._load_preview,
+                         args=(key, prism_id), daemon=True).start()
+
+    def _draw_projects(self, force: bool = False):
         if not self.connected:
             return
-        for row in self.rows:
-            row.destroy()
-        self.rows.clear()
         search = self.search.get().strip().casefold()
         show_removed = self.filter_removed.get()
         filtered = [
@@ -304,20 +372,46 @@ class Workspace(ctk.CTk):
             if (bool(unavailable_cloud_status(p)) == show_removed)
             and (not search or search in p.get("name", "").casefold())
         ]
+        signature = (
+            search, show_removed, self.selected_id,
+            tuple((p["id"], p.get("name"), p.get("head_revision"),
+                   p.get("cloud_state"),
+                   self.authors.get(self._thumbnail_key(p), p.get("owner")))
+                  for p in filtered),
+        )
+        if signature == self._render_signature and not force:
+            return
+        self._render_signature = signature
+        for row in self.rows:
+            row.destroy()
+        self.rows.clear()
+        self.thumbnail_labels.clear()
         self.count.configure(text=f"{len(filtered)} project{'s' if len(filtered) != 1 else ''}")
         for project in filtered:
             pid = project["id"]
             selected = self.selected_id == pid
             row = ctk.CTkFrame(self.list_area, fg_color="#1c2028" if selected else "transparent",
-                               corner_radius=8, height=42)
+                               corner_radius=8, height=60)
             row.pack(fill="x", pady=2)
-            name = self._text(row, "▱  " + project["name"], 15, "bold" if selected else "normal")
-            name.pack(side="left", padx=12, pady=10)
-            self._text(row, "r" + str(project.get("head_revision", "?")), 12, color=SUBTLE).pack(side="right", padx=14)
-            for item in (row, name):
+            thumbnail = self._thumbnail_image(project, "row")
+            preview = ctk.CTkLabel(row, text="" if thumbnail else "▱",
+                                   image=thumbnail, width=85, height=54,
+                                   text_color=SUBTLE)
+            preview.pack(side="left", padx=(8, 6), pady=3)
+            self.thumbnail_labels[pid] = preview
+            name = self._text(row, project["name"], 15, "bold" if selected else "normal")
+            name.pack(side="left", padx=(0, 12), pady=10)
+            rev = self._text(row, "r" + str(project.get("head_revision", "?")),
+                             12, color=SUBTLE)
+            rev.pack(side="right", padx=(6, 14))
+            author = self.authors.get(self._thumbnail_key(project)) or project.get("owner") or "Unknown author"
+            author_text = self._text(row, str(author), 12, color=SUBTLE)
+            author_text.pack(side="right", padx=(8, 16))
+            for item in (row, name, preview, author_text, rev):
                 item.bind("<Button-1>", lambda _e, p=pid: self._select(p))
                 item.bind("<Double-1>", lambda _e, p=pid: (self._select(p), self._open_selected()))
             self.rows.append(row)
+            self._request_thumbnail(project)
         if not filtered:
             empty = ctk.CTkFrame(self.list_area, fg_color="transparent")
             empty.pack(fill="x", pady=32)
@@ -331,11 +425,21 @@ class Workspace(ctk.CTk):
 
     def _select(self, pid: str):
         self.selected_id = pid
-        project = self._selected()
         self._draw_projects()
+        self._update_details()
+
+    def _update_details(self):
+        project = self._selected()
         if not project:
+            self.project_name.configure(text="Project removed from server")
+            self.project_info.configure(text="No cloud entry. Local copies are preserved.")
+            self.preview.configure(text="No preview", image=None)
             return
+        pid = project["id"]
         info = "Cloud r" + str(project.get("head_revision", "?"))
+        author = self.authors.get(self._thumbnail_key(project)) or project.get("owner")
+        if author:
+            info += "  •  Author: " + str(author)
         local = self.engine.local_projects() if self.engine else {}
         info += "  •  " + ("Downloaded" if pid in local else "Cloud only")
         if self.engine and pid in self.engine.status:
@@ -344,36 +448,26 @@ class Workspace(ctk.CTk):
             info += "\nRemoved from the shared workspace; local files are preserved."
         self.project_name.configure(text=project["name"])
         self.project_info.configure(text=info)
-        self.preview.configure(text="Loading preview...", image=None)
-        self.preview_image = None
-        prism_id = project.get("prism_project_id")
-        if prism_id and not unavailable_cloud_status(project):
-            threading.Thread(target=self._load_preview, args=(pid, prism_id), daemon=True).start()
-        else:
-            self.preview.configure(text="No preview available")
+        icon = self._thumbnail_image(project, "detail")
+        self.preview.configure(image=icon, text="" if icon else "No preview yet")
+        self.preview_image = icon
+        self._request_thumbnail(project)
 
-    def _load_preview(self, pid: str, prism_id: str):
+    def _load_preview(self, key: tuple[str, int], prism_id: str):
         if not self.api:
             return
         try:
             with self.io_lock:
                 data = self.api.thumbnail(prism_id)
-            self.events.put(("thumbnail", pid, data))
+            self.events.put(("thumbnail", key, data))
         except Exception:
-            self.events.put(("thumbnail", pid, None))
+            self.events.put(("thumbnail", key, None))
 
     def _display_thumbnail(self, data: bytes | None):
-        if not data:
-            self.preview.configure(text="No preview yet", image=None)
-            return
-        try:
-            with Image.open(io.BytesIO(data)) as img:
-                img.thumbnail((188, 118), Image.Resampling.LANCZOS)
-                bitmap = img.convert("RGBA").copy()
-            self.preview_image = ctk.CTkImage(light_image=bitmap, dark_image=bitmap, size=bitmap.size)
-            self.preview.configure(image=self.preview_image, text="")
-        except (OSError, ValueError):
-            self.preview.configure(text="Preview unavailable", image=None)
+        project = self._selected()
+        icon = self._thumbnail_image(project, "detail") if project else None
+        self.preview_image = icon
+        self.preview.configure(text="" if icon else "No preview yet", image=icon)
 
     def _refresh(self):
         if not self.api:
