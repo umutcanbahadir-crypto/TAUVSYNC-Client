@@ -147,6 +147,9 @@ def run(project_path: str | None = None):
                       font=("Arial", 12, "bold")).pack(anchor="w", pady=(12, 6))
             ttk.Button(outer, text="Upload current/open KiCad project to TAUVSYNC…",
                        command=self._upload_project).pack(anchor="w", pady=(0, 5))
+            self.search = tk.StringVar()
+            ttk.Entry(outer, textvariable=self.search, width=40).pack(
+                fill="x", pady=(0, 6))
             self.tree = ttk.Treeview(outer, columns=("revision", "status"), show="tree headings", selectmode="browse")
             self.tree.heading("#0", text="Project / folder")
             self.tree.heading("revision", text="Cloud revision")
@@ -157,6 +160,7 @@ def run(project_path: str | None = None):
             self.tree.pack(fill="both", expand=True)
             self.tree.bind("<<TreeviewSelect>>", self._selection)
             self.tree.bind("<Double-1>", lambda _event: self._open_project())
+            self.search.trace_add("write", lambda *_: self._show_tree())
 
             toolbar = ttk.Frame(outer)
             toolbar.pack(fill="x", pady=(8, 4))
@@ -299,7 +303,10 @@ def run(project_path: str | None = None):
             local_projects = self.engine.local_projects() if self.engine else {}
             cloud_ids = set()
             removed = []
+            search_text = self.search.get().strip().casefold()
             for project in self.remote:
+                if search_text and search_text not in project.get("name", "").casefold():
+                    continue
                 pid = project["id"]
                 cloud_ids.add(pid)
                 unavailable = unavailable_cloud_status(project)
@@ -316,7 +323,8 @@ def run(project_path: str | None = None):
             # Prism is authoritative for active membership. Keep deleted
             # projects and local checkouts in a separate recovery section,
             # never erase their files or historical server revisions.
-            missing = sorted(set(local_projects) - cloud_ids)
+            missing = sorted(pid for pid in set(local_projects) - {p["id"] for p in self.remote}
+                             if not search_text or search_text in (local_projects[pid].get("name") or pid).casefold())
             if removed or missing:
                 group = "local:unavailable"
                 self.tree.insert("", "end", iid=group,
@@ -590,12 +598,13 @@ def run(project_path: str | None = None):
             self.shutdown.set()
             self.root.destroy()
 
-    from .instance import AlreadyRunning, single_instance
+    from .instance import AlreadyRunning, single_instance, focus_existing_window
     try:
         with single_instance():
             Window().root.mainloop()
     except AlreadyRunning as error:
-        messagebox.showinfo("TAUVSYNC", str(error))
+        if not focus_existing_window("TAUV — KiCad Team Projects"):
+            messagebox.showinfo("TAUV", str(error))
 
 
 if __name__ == "__main__":
