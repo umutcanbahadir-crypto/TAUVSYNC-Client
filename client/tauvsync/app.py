@@ -19,10 +19,11 @@ import time
 from .api import APIError, PrismAPI
 from .credentials import CredentialStoreUnavailable, store_login, load_login, forget_login
 from .sync import SyncEngine, SyncUnsafe, editor_running, unavailable_cloud_status
-from .ssh_tunnel import TunnelConfig, ManagedSshTunnel, TunnelError
 
 
 SETTINGS = Path.home() / ".tauvsync-client.json"
+DEFAULT_SERVER = "https://tauvsync-gateway.umutcanbahadir.workers.dev"
+LOGO_PATH = Path(__file__).resolve().parent / "resources" / "tauv_icon_64.png"
 
 
 def load_preferences() -> dict:
@@ -32,22 +33,15 @@ def load_preferences() -> dict:
         return {}
 
 
-def save_preferences(url: str, workspace: str, email: str, remember: bool,
-                     ssh_settings: dict | None = None):
-    # Only SSH connection parameters and account name are stored in plaintext.
-    # Never write login credentials or SSH private key *contents* here.
+def save_preferences(url: str, workspace: str, email: str, remember: bool):
+    """Store UI settings only; credentials belong to Windows DPAPI.
+
+    Legacy SSH configuration in pre-2.0 preferences is intentionally ignored
+    and discarded the next time preferences are saved.
+    """
     SETTINGS.write_text(json.dumps({
         "url": url, "workspace": workspace, "email": email, "remember": remember,
-        "ssh": ssh_settings or {"enabled": False},
     }, indent=2), encoding="utf-8")
-
-
-def configured_credential_id(settings: dict) -> str:
-    ssh = settings.get("ssh") or {}
-    if ssh.get("enabled") and ssh.get("host"):
-        return TunnelConfig(host=ssh["host"], user=ssh.get("user", "user"),
-                            ssh_port=ssh.get("port", 22)).credential_id()
-    return str(settings.get("url", "https://")).rstrip("/")
 
 
 def find_project_file(candidate: Path | None) -> Path | None:
@@ -85,11 +79,10 @@ def run(project_path: str | None = None):
     class Window:
         def __init__(self):
             self.root = tk.Tk()
-            self.root.title("TAUVSYNC — KiCad Cloud Projects")
+            self.root.title("TAUV — KiCad Team Projects")
             self.root.geometry("880x630")
             self.root.minsize(680, 430)
             self.launch_project = Path(project_path) if project_path else None
-            self.tunnel = None
             self.api = None
             self.engine = None
             self.user = None
@@ -114,22 +107,29 @@ def run(project_path: str | None = None):
             pref = load_preferences()
             outer = ttk.Frame(self.root, padding=12)
             outer.pack(fill="both", expand=True)
-            login = ttk.LabelFrame(outer, text="Prism login", padding=10)
+            heading = ttk.Frame(outer)
+            heading.pack(fill="x", pady=(0, 10))
+            self.logo = None
+            try:
+                self.logo = tk.PhotoImage(file=str(LOGO_PATH))
+                self.root.iconphoto(True, self.logo)
+                ttk.Label(heading, image=self.logo).pack(side="left", padx=(0, 12))
+            except (OSError, tk.TclError):
+                pass
+            title = ttk.Frame(heading)
+            title.pack(side="left", fill="x", expand=True)
+            ttk.Label(title, text="TAUV", font=("Arial", 20, "bold")).pack(anchor="w")
+            ttk.Label(title, text="Team Projects  •  KiCad 10 synchronization").pack(anchor="w")
+            login = ttk.LabelFrame(outer, text="TAUV account", padding=10)
             login.pack(fill="x")
-            self.url = tk.StringVar(value=pref.get("url", "https://"))
+            self.url = tk.StringVar(value=pref.get("url") or DEFAULT_SERVER)
             self.email = tk.StringVar(value=pref.get("email", ""))
             self.remember = tk.BooleanVar(value=bool(pref.get("remember", False)))
-            ssh_pref = pref.get("ssh") or {}
-            self.ssh_enabled = tk.BooleanVar(value=bool(ssh_pref.get("enabled", False)))
-            self.ssh_host = tk.StringVar(value=ssh_pref.get("host", ""))
-            self.ssh_user = tk.StringVar(value=ssh_pref.get("user", "user"))
-            self.ssh_key = tk.StringVar(value=ssh_pref.get("key", str(Path.home() / ".ssh" / "id_ed25519")))
-            self.ssh_port = tk.StringVar(value=str(ssh_pref.get("port", 22)))
-            cached = load_login(configured_credential_id(pref), pref.get("email", "")) if self.remember.get() else None
+            cached = load_login(pref.get("url") or DEFAULT_SERVER, pref.get("email", "")) if self.remember.get() else None
             self.password = tk.StringVar(value=cached or "")
             self.workspace = tk.StringVar(value=pref.get("workspace", str(Path.home() / "TAUVSYNC")))
             for row, (label, value, show) in enumerate((
-                ("Prism server", self.url, None), ("Email", self.email, None),
+                ("TAUV server", self.url, None), ("Email", self.email, None),
                 ("Password", self.password, "*"), ("Local folder", self.workspace, None),
             )):
                 ttk.Label(login, text=label).grid(row=row, column=0, sticky="w", pady=2, padx=4)
@@ -143,18 +143,7 @@ def run(project_path: str | None = None):
                                 row=4, column=1, sticky="w", pady=3)
             ttk.Label(login, text="Session cookies remain in memory. Password is protected with Windows DPAPI.",
                       foreground="gray").grid(row=5, column=1, sticky="w")
-            ttk.Checkbutton(login, text="Connect automatically through SSH (no manual tunnel)",
-                            variable=self.ssh_enabled).grid(row=6, column=1, sticky="w", pady=3)
-            for row, (label, value) in enumerate((
-                ("SSH host", self.ssh_host), ("SSH user", self.ssh_user),
-                ("SSH private key file", self.ssh_key), ("SSH port", self.ssh_port)), start=7):
-                ttk.Label(login, text=label).grid(row=row, column=0, sticky="w", pady=1, padx=4)
-                ttk.Entry(login, textvariable=value, width=62).grid(
-                    row=row, column=1, sticky="ew", pady=1, padx=4)
-            ttk.Label(login, text="SSH uses your existing key and verified known_hosts; only localhost is forwarded.",
-                      foreground="gray").grid(row=11, column=1, sticky="w")
-
-            ttk.Label(outer, text="TAUVSYNC folders / shared KiCad projects",
+            ttk.Label(outer, text="TAUV folders / shared KiCad projects",
                       font=("Arial", 12, "bold")).pack(anchor="w", pady=(12, 6))
             ttk.Button(outer, text="Upload current/open KiCad project to TAUVSYNC…",
                        command=self._upload_project).pack(anchor="w", pady=(0, 5))
@@ -180,7 +169,7 @@ def run(project_path: str | None = None):
             ]
             for label, fn in actions:
                 ttk.Button(toolbar, text=label, command=fn).pack(side="left", padx=2)
-            self.status = tk.StringVar(value="Log in with your invitation-only Prism account.")
+            self.status = tk.StringVar(value="Sign in with your TAUV team account.")
             ttk.Label(outer, textvariable=self.status, wraplength=825).pack(anchor="w", pady=4)
 
         def _event(self, kind: str, obj):
@@ -205,16 +194,7 @@ def run(project_path: str | None = None):
                 forget_login()
                 self.password.set("")
                 save_preferences(self.url.get().strip(), self.workspace.get().strip(),
-                                 self.email.get().strip(), False, self._ssh_preferences())
-
-        def _ssh_preferences(self) -> dict:
-            return {
-                "enabled": bool(self.ssh_enabled.get()),
-                "host": self.ssh_host.get().strip(),
-                "user": self.ssh_user.get().strip(),
-                "key": self.ssh_key.get().strip(),
-                "port": self.ssh_port.get().strip(),
-            }
+                                 self.email.get().strip(), False)
 
         def _login(self):
             url = self.url.get().strip()
@@ -222,55 +202,34 @@ def run(project_path: str | None = None):
             password = self.password.get()
             storage = self.workspace.get().strip()
             remember = bool(self.remember.get())
-            ssh_pref = self._ssh_preferences()
             self.password.set("")
-            # Snapshot all Tk control values before entering the worker thread.
+
             def task():
-                tunnel = None
-                identity = url.rstrip("/")
-                try:
-                    if ssh_pref["enabled"]:
-                        config = TunnelConfig(
-                            host=ssh_pref["host"], user=ssh_pref["user"],
-                            key=ssh_pref["key"], ssh_port=int(ssh_pref["port"]),
-                        )
-                        identity = config.credential_id()
-                        tunnel = ManagedSshTunnel(config)
-                        url_for_api = tunnel.ensure_running()
-                    else:
-                        url_for_api = url
-                    api = PrismAPI(url_for_api)
-                    user = api.login(email, password)
-                    engine = SyncEngine(api, Path(storage))
-                    projects = api.projects()
-                except Exception:
-                    if tunnel is not None:
-                        tunnel.close()
-                    raise
-                previous = self.tunnel
-                self.tunnel = tunnel
+                api = PrismAPI(url)
+                user = api.login(email, password)
+                engine = SyncEngine(api, Path(storage))
+                projects = api.projects()
                 self.api, self.user, self.engine = api, user, engine
-                if previous is not None:
-                    previous.close()
-                save_preferences(url, storage, email, remember, ssh_pref)
+                save_preferences(url, storage, email, remember)
                 warning = ""
                 try:
                     if remember:
-                        store_login(identity, email, password)
+                        store_login(url, email, password)
                     else:
                         forget_login()
                 except (OSError, CredentialStoreUnavailable) as error:
                     warning = f"; could not save password securely: {error}"
                 return ("login", projects, warning)
-            self.status.set("Starting SSH connection…" if ssh_pref["enabled"] else "Connecting to Prism…")
+
+            self.status.set("Connecting to TAUV…")
             self._background(task)
 
         def _upload_project(self):
             if not self.api or not self.engine:
-                self.status.set("Log in before uploading a KiCad project.")
+                self.status.set("Sign in before uploading a KiCad project.")
                 return
             if self.user.get("role") not in ("designer", "admin"):
-                self.status.set("Designer or admin permission is required for uploading.")
+                self.status.set("TAUV Designer or Admin permission is required for uploading.")
                 return
             project_file = find_project_file(self.launch_project)
             if project_file and not messagebox.askyesno(
@@ -460,8 +419,6 @@ def run(project_path: str | None = None):
             while not self.shutdown.is_set():
                 if self.api and self.engine:
                     try:
-                        if self.tunnel is not None:
-                            self.tunnel.ensure_running()
                         projects = self.api.projects()
                         pmap = {p["id"]: p for p in projects}
                         for pid in self.engine.local_projects():
@@ -532,8 +489,6 @@ def run(project_path: str | None = None):
             ):
                 return
             self.shutdown.set()
-            if self.tunnel is not None:
-                self.tunnel.close()
             self.root.destroy()
 
     from .instance import AlreadyRunning, single_instance
