@@ -21,7 +21,7 @@ jobs:
       - name: Build bundled TAUVSYNC executable
         if: runner.os == 'Windows'
         run: |
-          python -m pip install pyinstaller
+          python -m pip install pyinstaller kicad-python==0.8.0
           python -m PyInstaller --noconfirm --clean --onefile --windowed --name TAUVSYNC --paths client --add-data "client/tauvsync/resources;tauvsync/resources" client/launcher.py
           python packaging/build_pcm.py
       - name: Upload KiCad PCM test package
