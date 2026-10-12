@@ -1,3 +1,24 @@
+# TAUV 2.1 — Standalone Team Workspace (Windows test release)
+
+This **isolated development branch** adds a standalone Windows workspace
+with a dark UI, shared project browser, PCB thumbnails, automatic downloads,
+**New Project → Open in KiCad**, and optional Import Existing Project.
+
+A successful Windows CI build produces **two downloadable files**:
+- \`TAUVSYNC.exe\` — standalone launcher; start TAUV before opening KiCad.
+- \`TAUVSYNC-KiCad10-2.1.1.zip\` — KiCad 10 PCM extension; launches the same app.
+
+No Git, SSH or separately installed Python is required for end users.
+**Keep TAUV running or minimized to continue automatic sync.**
+The backend is unchanged; existing managed checkouts are reused.
+
+For installation, first-time login, conflict safety and beta limitations:
+[Standalone workspace setup](docs/STANDALONE-WORKSPACE.md).
+
+The underlying Client 2.0 implementation follows.
+
+---
+
 # TAUV — KiCad Team Projects
 
 A team project browser and automatic synchronization client for **KiCad 10**
