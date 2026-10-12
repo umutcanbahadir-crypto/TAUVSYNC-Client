@@ -328,12 +328,12 @@ def run(project_path: str | None = None):
             if removed or missing:
                 group = "local:unavailable"
                 self.tree.insert("", "end", iid=group,
-                                 text="Removed from Prism / unavailable (sync paused)",
+                                 text="Removed from TAUV cloud / unavailable (sync paused)",
                                  values=("", ""))
                 for project, unavailable in removed:
                     pid = project["id"]
                     details = (unavailable if pid in local_projects else
-                               "Removed from Prism; no local checkout; server history retained")
+                               "Removed from TAUV cloud; no local checkout; server history may be unavailable")
                     self.tree.insert(group, "end", iid="project:" + pid,
                                      text=project["name"],
                                      values=("r" + str(project["head_revision"]), details))
