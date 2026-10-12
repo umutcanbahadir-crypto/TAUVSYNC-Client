@@ -170,6 +170,17 @@ class PrismAPI:
         }) as response:
             return json.load(response)
 
+    def restore(self, project_id: str, revision: int) -> dict:
+        """Restore an historical snapshot as a new current revision.
+
+        The server preserves all previous revisions; this operation requires a
+        deliberate user confirmation in the UI and Designer/Admin permission.
+        """
+        return self._json(
+            f"/api/tauvsync/projects/{_id(project_id)}/revisions/{int(revision)}/restore",
+            method="POST", payload={},
+        )
+
 
 class _SameOriginRedirect(urllib.request.HTTPRedirectHandler):
     def __init__(self, origin: str):
