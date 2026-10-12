@@ -17,7 +17,6 @@ PATTERNS = {
     "private key": re.compile(r"-----BEGIN\s+(?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
     "GitHub access token": re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b"),
     "AWS access key": re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
-    "embedded URL credentials": re.compile(r"https?://[^\s/:'\"@]+:[^\s/'\"@]+@"),
     "personal email address": re.compile(
         r"[\w.+-]+@(?:gmail\.com|googlemail\.com|hotmail\.com|outlook\.com|"
         r"icloud\.com|yahoo\.com|yandex\.com|proton\.me|protonmail\.com)\b",
@@ -44,7 +43,15 @@ def inspect_file(path: str, payload: bytes) -> list[str]:
     if len(payload) > MAX_TEXT_SIZE or b"\0" in payload:
         return []  # Binary assets are not treated as source; release artifacts are CI-built.
     text = payload.decode("utf-8", errors="replace")
-    return [label for label, pattern in PATTERNS.items() if pattern.search(text)]
+    findings = [label for label, pattern in PATTERNS.items() if pattern.search(text)]
+    # Intentional dummy credentials in protocol tests can use the reserved
+    # example.com / example.test domains. Never allow actual public domains.
+    url_pattern = re.compile(r"https?://[^\\s/:'\\\"@]+:[^\\s/'\\\"@]+@([^\\s/'\\\"@]+)")
+    for match in url_pattern.finditer(text):
+        if match.group(1).lower() not in ("example.com", "example.test", "example.invalid"):
+            findings.append("embedded URL credentials")
+            break
+    return findings
 
 
 def main() -> int:
