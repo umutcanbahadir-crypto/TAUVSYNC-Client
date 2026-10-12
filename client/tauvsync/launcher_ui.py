@@ -180,7 +180,7 @@ class Workspace(ctk.CTk):
         small.pack(fill="x", padx=18, pady=(0, 16))
         for text, action in (
             ("Import Existing", self._import_existing), ("History", self._history),
-            ("Sync now", self._refresh), ("Pause sync", self._toggle_pause),
+            ("Sync now", self._sync_now), ("Pause sync", self._toggle_pause),
             ("Sign out", self._logout),
         ):
             ctk.CTkButton(small, text=text, width=112, height=30,
@@ -384,6 +384,28 @@ class Workspace(ctk.CTk):
         self.projects = projects
         self._draw_projects()
         self._set_status("Cloud projects refreshed.")
+
+    def _sync_now(self):
+        if not self.api or not self.engine:
+            return
+        def work():
+            projects = self.api.projects()
+            local = self.engine.local_projects()
+            editors_open = editor_running()
+            for project in projects:
+                if project["id"] in local:
+                    self.engine.poll(
+                        project["id"], project, editors_open=editors_open,
+                        allow_publish=self.user.get("role") in ("designer", "admin"),
+                    )
+            return projects
+        def completed(projects):
+            self.projects = projects
+            self._draw_projects()
+            self._set_status("Manual synchronization completed; see each project's status.")
+            if self.selected_id:
+                self._select(self.selected_id)
+        self._task("Checking for local and cloud changes…", work, completed)
 
     def _toggle_pause(self):
         self.paused = not self.paused
