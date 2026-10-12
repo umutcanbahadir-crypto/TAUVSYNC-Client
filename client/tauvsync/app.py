@@ -164,6 +164,7 @@ def run(project_path: str | None = None):
                 ("Refresh cloud", self._refresh),
                 ("Open in KiCad", self._open_project),
                 ("Sync now", self._sync_now),
+                ("Version history", self._history),
                 ("Preserve conflict on server", self._alternate),
                 ("Use latest server version", self._use_server),
             ]
@@ -383,6 +384,101 @@ def run(project_path: str | None = None):
                 ))
             self._background(task)
 
+        def _history(self):
+            project = self._remote_selected()
+            if not self.api or not project:
+                self.status.set("Select a team project to view its revisions.")
+                return
+            self._background(lambda: ("history", project, self.api.revisions(project["id"])))
+
+        def _show_history(self, project: dict, revisions: list[dict]):
+            dialog = tk.Toplevel(self.root)
+            dialog.title("TAUV — Version history: " + project["name"])
+            dialog.geometry("690x430")
+            dialog.transient(self.root)
+            dialog.columnconfigure(0, weight=1)
+            dialog.rowconfigure(1, weight=1)
+
+            ttk.Label(
+                dialog,
+                text="Revision history — " + project["name"],
+                font=("Arial", 13, "bold"),
+            ).grid(row=0, column=0, sticky="w", padx=12, pady=(12, 8))
+            table = ttk.Treeview(
+                dialog, columns=("status", "author", "date", "based"),
+                show="tree headings", selectmode="browse",
+            )
+            table.heading("#0", text="Revision")
+            table.heading("status", text="Status")
+            table.heading("author", text="Author")
+            table.heading("date", text="Timestamp (UTC)")
+            table.heading("based", text="Based on")
+            table.column("#0", width=90, stretch=False)
+            table.column("status", width=95, stretch=False)
+            table.column("author", width=200)
+            table.column("date", width=210)
+            table.column("based", width=85, stretch=False)
+            table.grid(row=1, column=0, sticky="nsew", padx=12)
+            for revision in revisions:
+                number = int(revision["number"])
+                table.insert("", "end", iid=str(number), text="r" + str(number),
+                             values=(revision.get("status", ""),
+                                     revision.get("author", ""),
+                                     revision.get("created_at", ""),
+                                     revision.get("based_on") or "—"))
+
+            def selected_revision() -> int | None:
+                selected = table.selection()
+                return int(selected[0]) if selected else None
+
+            def save_snapshot():
+                number = selected_revision()
+                if number is None:
+                    return
+                target = filedialog.asksaveasfilename(
+                    parent=dialog, title="Download historical snapshot",
+                    initialfile=f"{project['name']}-r{number}.zip",
+                    defaultextension=".zip", filetypes=[("ZIP snapshot", "*.zip")],
+                )
+                if not target:
+                    return
+                def operation():
+                    self.api.download(project["id"], number, Path(target))
+                    return ("message", f"Downloaded r{number} to {target}")
+                self._background(operation)
+
+            def restore_snapshot():
+                number = selected_revision()
+                if number is None:
+                    return
+                if not messagebox.askyesno(
+                    "Restore historical version",
+                    f"Restore r{number} as a NEW latest cloud revision? "
+                    "Existing history will remain available.",
+                    parent=dialog,
+                ):
+                    return
+                def operation():
+                    result = self.api.restore(project["id"], number)
+                    self._event("message", f"Restored r{number} as r{result['number']}")
+                    self._background_refresh_no_guard()
+                    return ("message", "Restore completed; all earlier versions retained.")
+                self._background(operation)
+
+            buttons = ttk.Frame(dialog)
+            buttons.grid(row=2, column=0, sticky="ew", padx=12, pady=12)
+            ttk.Button(buttons, text="Download ZIP", command=save_snapshot).pack(side="left")
+            can_restore = bool(self.user and self.user.get("role") in ("designer", "admin")
+                               and project.get("cloud_state", "active") == "active")
+            restore_btn = ttk.Button(buttons, text="Restore as latest revision",
+                                     command=restore_snapshot)
+            restore_btn.pack(side="left", padx=8)
+            if not can_restore:
+                restore_btn.state(["disabled"])
+            ttk.Button(buttons, text="Close", command=dialog.destroy).pack(side="right")
+            if revisions:
+                table.selection_set(str(revisions[0]["number"]))
+
         def _alternate(self):
             if not self.engine or not self.selected_id:
                 return
@@ -466,6 +562,9 @@ def run(project_path: str | None = None):
                                 "Uploaded successfully. Managed KiCad project: " + managed_path +
                                 ". Close the original PCB Editor, then use Open in KiCad "
                                 "on this project to edit the synchronized copy.")
+                        elif payload and payload[0] == "history":
+                            _, project, revisions = payload
+                            self._show_history(project, revisions)
                         elif payload and payload[0] == "refresh":
                             _, self.remote, self.folders, self.workspace_projects = payload
                         elif payload and payload[0] == "message":
