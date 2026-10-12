@@ -63,7 +63,7 @@ py -3.12 client/kicad_plugin/install.py 10.0
 Build self-contained Windows executable and PCM ZIP on this development branch:
 
 ```powershell
-py -3.12 -m pip install pyinstaller
+py -3.12 -m pip install pyinstaller kicad-python==0.8.0
 py -3.12 -m PyInstaller --noconfirm --clean --onefile --windowed --name TAUVSYNC --paths client --add-data "client/tauvsync/resources;tauvsync/resources" client/launcher.py
 py -3.12 packaging/build_pcm.py
 ```
