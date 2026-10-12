@@ -62,14 +62,9 @@ def find_project_file(candidate: Path | None) -> Path | None:
 
 
 def open_kicad(path: Path):
-    if not path.is_file() or path.suffix.lower() != ".kicad_pro":
-        raise SyncUnsafe("Project file does not exist")
-    if sys.platform == "win32":
-        os.startfile(str(path))  # user-chosen local KiCad file association
-    elif sys.platform == "darwin":
-        subprocess.Popen(["open", str(path)])
-    else:
-        subprocess.Popen(["xdg-open", str(path)])
+    """Open with KiCad 10 rather than the OS' possibly KiCad 9 file association."""
+    from .kicad_launcher import launch_kicad_project
+    return launch_kicad_project(path)
 
 
 def run(project_path: str | None = None):
