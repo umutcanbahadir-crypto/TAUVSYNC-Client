@@ -472,33 +472,40 @@ class Workspace(ctk.CTk):
     def _refresh(self):
         if not self.api:
             return
-        self._task("Refreshing projects…", self.api.projects, self._receive_projects)
+        self._task("Refreshing projects…", self._get_project_snapshot,
+                   self._receive_projects)
 
-    def _receive_projects(self, projects):
-        self.projects = projects
+    def _receive_projects(self, snapshot):
+        self.projects, self.authors = snapshot
         self._draw_projects()
-        self._set_status("Cloud projects refreshed.")
+        if self.selected_id:
+            self._update_details()
+        self._set_status("Cloud projects refreshed; removed projects moved to Removed.")
 
     def _sync_now(self):
         if not self.api or not self.engine:
             return
         def work():
-            projects = self.api.projects()
+            projects, authors = self._get_project_snapshot()
             local = self.engine.local_projects()
-            editors_open = editor_running()
+            active_managed = [
+                p for p in projects if p["id"] in local
+                and not unavailable_cloud_status(p)
+            ]
+            editors_open = editor_running() if active_managed else False
             for project in projects:
                 if project["id"] in local:
                     self.engine.poll(
                         project["id"], project, editors_open=editors_open,
                         allow_publish=self.user.get("role") in ("designer", "admin"),
                     )
-            return projects
-        def completed(projects):
-            self.projects = projects
+            return projects, authors
+        def completed(snapshot):
+            self.projects, self.authors = snapshot
             self._draw_projects()
             self._set_status("Manual synchronization completed; see each project's status.")
             if self.selected_id:
-                self._select(self.selected_id)
+                self._update_details()
         self._task("Checking for local and cloud changes…", work, completed)
 
     def _toggle_pause(self):
@@ -534,10 +541,13 @@ class Workspace(ctk.CTk):
             dialog.grab_release()
             dialog.destroy()
             def work():
-                return create_cloud_project(self.api, self.engine, title, key)
+                fresh = self.api.projects()
+                unique_name = next_available_name(title, fresh)
+                return create_cloud_project(self.api, self.engine, unique_name, key)
             def done(result):
                 project, path = result
                 self.projects = [p for p in self.projects if p["id"] != project["id"]] + [project]
+                self.authors[self._thumbnail_key(project)] = str(project.get("owner") or "")
                 self._select(project["id"])
                 self._set_status("Created " + project["name"] + " as cloud revision r1.")
                 if should_open:
@@ -601,11 +611,14 @@ class Workspace(ctk.CTk):
             project, path = result
             self.projects = [p for p in self.projects if p["id"] != project["id"]] + [project]
             self._select(project["id"])
-            self._set_status("Imported. Your original files are unchanged.")
+            self._set_status("Imported as " + project["name"] + ". Your original files are unchanged.")
             if messagebox.askyesno("TAUV", "Open the synchronized managed copy now?", parent=self):
                 open_kicad(path)
-        self._task("Importing existing project…",
-                   lambda: self.engine.upload_local_project(project_file, name), done)
+        def import_work():
+            fresh = self.api.projects()
+            unique_name = next_available_name(name, fresh)
+            return self.engine.upload_local_project(project_file, unique_name)
+        self._task("Importing existing project…", import_work, done)
 
     def _history(self):
         project = self._selected()
