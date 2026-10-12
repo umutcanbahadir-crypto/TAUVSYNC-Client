@@ -1,16 +1,28 @@
-# Installation quick reference
+# TAUV installation (KiCad 10, Windows)
 
-**Public GitHub client:** https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client
+**Beta PCM package:** Build and download the `TAUVSYNC-KiCad10-*.zip`
+artifact from the GitHub Actions workflow associated with the beta branch.
 
-On Windows with KiCad 10 and Python 3.11+ (Tkinter enabled), run:
+1. Ensure KiCad 10.x is installed.
+2. KiCad Project Manager → **Plugin and Content Manager** → **Install from File**.
+3. Choose the TAUVSYNC PCM ZIP; do **not** unzip it manually.
+4. PCB Editor → **Preferences → Plugins**: enable the KiCad IPC API server.
+5. Restart PCB Editor.
+6. **Tools → External Plugins → TAUV Team Projects**, or click the TAUV logo.
+7. Enter your TAUV team email and password. The HTTPS server is prefilled.
+8. Keep TAUV open or minimized while working on the managed checkout.
 
-```powershell
-git clone https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client.git
-cd TAUVSYNC-Client
-py -3 client/kicad_plugin/install.py 10.0
-```
+The PCM package has a bundled runtime; **no Python, Git or SSH installation**
+is required for end users. Upgrade the plugin using a new PCM ZIP; never
+delete your `TAUVSYNC` project folder to update.
 
-Restart KiCad 10 PCB Editor and choose **Tools → External Plugins → TAUVSYNC — Team Projects**.
-Enter the **HTTPS Prism URL from your administrator** and sign in with your **own Prism credentials**. The GitHub URL is not the Prism server address. No GitHub token is required to install.
+**Do not remove the previous SWIG plugin until this IPC build is tested.**
+If both variants appear on the toolbar, after confirming the IPC build works,
+remove the previous `tauvsync_plugin` from your legacy scripting/plugins
+folder, not from your managed checkout folder.
 
-See [README](../README.md) for the full guide, synchronization behavior and troubleshooting.
+Legacy development installation and build commands are documented in
+[README](../README.md).
+
+**Current beta limitation:** Sync runs while the TAUV dashboard is open or
+minimized. Closing the dashboard ends its sync thread.
