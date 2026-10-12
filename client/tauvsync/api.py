@@ -126,7 +126,7 @@ class PrismAPI:
         Never pull large binary data into the UI or follow cross-origin redirects.
         """
         project = str(prism_project_id)
-        if not re.fullmatch(r"[a-zA-Z0-9-]{1,64}", project):
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", project):
             raise ValueError("Invalid Prism project identifier")
         try:
             with self._request(f"/api/projects/{project}/thumbnail") as response:
