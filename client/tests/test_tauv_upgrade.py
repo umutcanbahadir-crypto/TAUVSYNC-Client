@@ -34,6 +34,14 @@ class TAUVClientUpgradeTests(unittest.TestCase):
             self.assertNotIn("password", new)
             self.assertEqual(new["workspace"], old["workspace"])
 
+    def test_large_worker_upload_is_rejected_before_network(self):
+        api = PrismAPI(app.DEFAULT_SERVER)
+        with self.assertRaisesRegex(Exception, "100 MB"):
+            api._check_gateway_upload(100_000_001)
+        api._check_gateway_upload(99_999_999)
+        other = PrismAPI("https://team.example.test")
+        other._check_gateway_upload(200_000_000)
+
     def test_restore_uses_existing_versioned_backend_route(self):
         api = PrismAPI("https://team.example.test")
         project_id = "a" * 32
