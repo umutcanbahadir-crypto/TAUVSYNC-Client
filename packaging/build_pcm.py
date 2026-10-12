@@ -13,7 +13,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "TAUVSYNC"
-VERSION = "2.0.0-beta.1"
+VERSION = "2.0.1"
 
 
 def metadata() -> dict:
@@ -28,7 +28,10 @@ def metadata() -> dict:
         ),
         "identifier": "com.github.umutcanbahadir-crypto.tauvsync",
         "type": "plugin",
-        "author": {"name": "TAUV"},
+        "author": {
+            "name": "TAUV",
+            "contact": {"web": "https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client"},
+        },
         # A public repository without a declared license is NOT assumed MIT.
         # This third-party testing package is not submitted to KiCad's official repository.
         "license": "Proprietary",
@@ -40,6 +43,7 @@ def metadata() -> dict:
             "status": "testing",
             "kicad_version": "10.0",
             "kicad_version_max": "10.0",
+            "platforms": ["windows"],
             "runtime": "ipc",
         }],
     }
