@@ -17,4 +17,19 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m unittest discover -s client/tests -v
-      - run: python -m compileall -q client
+      - run: python -m compileall -q client packaging
+      - name: Build bundled TAUVSYNC executable
+        if: runner.os == 'Windows'
+        run: |
+          python -m pip install pyinstaller
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name TAUVSYNC --paths client --add-data "client/tauvsync/resources;tauvsync/resources" client/launcher.py
+          python packaging/build_pcm.py
+      - name: Upload KiCad PCM test package
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: TAUVSYNC-KiCad10-Windows-testing
+          path: |
+            dist/TAUVSYNC-KiCad10-*.zip
+            dist/TAUVSYNC-KiCad10-*.zip.sha256
+          if-no-files-found: error
