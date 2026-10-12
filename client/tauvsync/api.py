@@ -40,6 +40,9 @@ class PrismAPI:
             urllib.request.HTTPCookieProcessor(self.cookies),
             _SameOriginRedirect(self.base),
         )
+        # Identify the client explicitly: some HTTPS gateways reject
+        # urllib's default Python-urllib/* User-Agent with HTTP 403.
+        self.opener.addheaders = [("User-Agent", "TAUVSYNC-Client/1.0")]
 
     def _request(self, path: str, *, method: str = "GET", data=None, headers=None):
         request = urllib.request.Request(
