@@ -17,14 +17,14 @@ class KiCad10LauncherTests(unittest.TestCase):
             old = root / "KiCad" / "9.0" / "bin" / "kicad.exe"
             old.parent.mkdir(parents=True)
             old.write_bytes(b"MZ")
-            self.assertEqual(find_kicad10(environ={"ProgramFiles": str(root)}), exe)
+            self.assertEqual(find_kicad10(environ={"ProgramFiles": str(root)}), exe.resolve())
 
             project = Path(folder) / "design.kicad_pro"
             project.write_text("{}")
             with mock.patch("client.tauvsync.kicad_launcher.subprocess.Popen") as popen:
                 launch_kicad_project(project, platform="win32",
                                      environ={"ProgramFiles": str(root)})
-            self.assertEqual(popen.call_args.args[0], [str(exe), str(project)])
+            self.assertEqual(popen.call_args.args[0], [str(exe.resolve()), str(project.resolve())])
             self.assertNotIn(str(old), popen.call_args.args[0])
             self.assertEqual(popen.call_args.kwargs.get("creationflags", 0) & 0x08000000,
                              0x08000000)
@@ -33,7 +33,7 @@ class KiCad10LauncherTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             exe = Path(folder) / "kicad.exe"
             exe.write_bytes(b"MZ")
-            self.assertEqual(find_kicad10(environ={"TAUV_KICAD10_EXE": str(exe)}), exe)
+            self.assertEqual(find_kicad10(environ={"TAUV_KICAD10_EXE": str(exe)}), exe.resolve())
 
     def test_missing_kicad10_fails_instead_of_opening_kicad9(self):
         with tempfile.TemporaryDirectory() as folder:
