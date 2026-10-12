@@ -11,7 +11,7 @@ import pcbnew
 
 class TauvsyncAction(pcbnew.ActionPlugin):
     def defaults(self):
-        self.name = "TAUVSYNC — Team Projects"
+        self.name = "TAUV — Team Projects"
         self.category = "Collaboration"
         self.description = "Open TAUV team projects and synchronize KiCad designs"
         self.show_toolbar_button = True
