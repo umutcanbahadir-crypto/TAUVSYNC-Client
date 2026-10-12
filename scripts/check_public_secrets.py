@@ -46,9 +46,9 @@ def inspect_file(path: str, payload: bytes) -> list[str]:
     findings = [label for label, pattern in PATTERNS.items() if pattern.search(text)]
     # Intentional dummy credentials in protocol tests can use the reserved
     # example.com / example.test domains. Never allow actual public domains.
-    url_pattern = re.compile(r"https?://[^\\s/:'\\\"@]+:[^\\s/'\\\"@]+@([^\\s/'\\\"@]+)")
+    url_pattern = re.compile(r"https?://([^/@:\s]+):([^/@\s]+)@([A-Za-z0-9.-]+)")
     for match in url_pattern.finditer(text):
-        if match.group(1).lower() not in ("example.com", "example.test", "example.invalid"):
+        if match.group(3).lower() not in ("example.com", "example.test", "example.invalid"):
             findings.append("embedded URL credentials")
             break
     return findings
