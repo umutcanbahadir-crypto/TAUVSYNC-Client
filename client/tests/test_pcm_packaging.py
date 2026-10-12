@@ -43,6 +43,11 @@ class IPCPackageTests(unittest.TestCase):
                 meta = json.loads(z.read("metadata.json"))
                 self.assertEqual(meta["versions"][0]["runtime"], "ipc")
                 self.assertEqual(meta["versions"][0]["kicad_version"], "10.0")
+                self.assertEqual(meta["versions"][0]["version"], "2.0.1")
+                self.assertEqual(meta["versions"][0]["status"], "testing")
+                self.assertEqual(meta["versions"][0]["platforms"], ["windows"])
+                self.assertTrue(meta["author"]["contact"]["web"].startswith("https://"))
+
             self.assertTrue(output.with_suffix(".zip.sha256").is_file())
 
 
