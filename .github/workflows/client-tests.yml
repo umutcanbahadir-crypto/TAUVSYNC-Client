@@ -29,7 +29,7 @@ jobs:
           python -m PyInstaller --noconfirm --clean --onefile --windowed --name TAUVSYNC --paths client --collect-all customtkinter --add-data "client/tauvsync/resources;tauvsync/resources" client/launcher.py
           python packaging/build_pcm.py
           python -m pip install jsonschema
-          python packaging/validate_pcm.py dist/TAUVSYNC-KiCad10-2.1.0.zip
+          python packaging/validate_pcm.py dist/TAUVSYNC-KiCad10-2.1.1.zip
       - name: Smoke-test the actual packaged Windows executable
         if: runner.os == 'Windows'
         shell: pwsh
