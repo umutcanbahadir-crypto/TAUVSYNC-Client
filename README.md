@@ -3,7 +3,7 @@
 A team project browser and automatic synchronization client for **KiCad 10**
 and the TAUVSYNC/Prism HTTPS backend.
 
-**Status:** `2.0.0-beta.1` implementation branch, Windows x64 testing release.
+**Status:** `2.0.1` testing implementation branch, Windows x64 testing release.
 The existing `main` installation remains supported until the PCM build has
 been tested inside KiCad on a clean machine.
 
@@ -11,7 +11,7 @@ been tested inside KiCad on a clean machine.
 
 The intended end-user installation requires **no separate Python, Git or SSH**.
 
-1. Download the tested `TAUVSYNC-KiCad10-2.0.0-beta.1.zip` PCM package from
+1. Download the tested `TAUVSYNC-KiCad10-2.0.1.zip` PCM package from
    the Windows build artifact or a future tagged release.
 2. Open KiCad 10 **Plugin and Content Manager → Install from File**.
 3. If KiCad's IPC API is disabled, enable it in **Preferences → Plugins**
