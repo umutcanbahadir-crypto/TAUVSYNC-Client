@@ -107,6 +107,20 @@ class PrismAPI:
             target.unlink(missing_ok=True)
             raise
 
+    def _check_gateway_upload(self, total_bytes: int) -> None:
+        """Avoid guaranteed HTTP 413 from the team's Free-plan Worker URL.
+
+        The server supports larger archives, but the HTTPS gateway rejects
+        requests greater than 100 million bytes on the present Free tier.
+        """
+        parsed = urllib.parse.urlsplit(self.base)
+        if parsed.hostname == "tauvsync-gateway.umutcanbahadir.workers.dev" and total_bytes > 100_000_000:
+            raise APIError(
+                "Project ZIP exceeds the current TAUV Cloudflare gateway's 100 MB "
+                "upload limit. No upload was attempted; local files are safe.",
+                status=413,
+            )
+
     def create(self, name: str, archive: Path) -> dict:
         """Create a cloud project from an existing complete KiCad project ZIP."""
         name = name.strip()
@@ -134,6 +148,7 @@ class PrismAPI:
                     yield piece
             yield footer
 
+        self._check_gateway_upload(len(header) + size + len(footer))
         with self._request("/api/tauvsync/projects", method="POST",
                            data=chunks(), headers={
                                "Content-Type": f"multipart/form-data; boundary={boundary}",
@@ -163,6 +178,7 @@ class PrismAPI:
                 while piece := inp.read(1024 * 1024):
                     yield piece
             yield footer
+        self._check_gateway_upload(len(header) + size + len(footer))
         path = f"/api/tauvsync/projects/{_id(project_id)}/revisions"
         with self._request(path, method="POST", data=chunks(), headers={
             "Content-Type": f"multipart/form-data; boundary={boundary}",
