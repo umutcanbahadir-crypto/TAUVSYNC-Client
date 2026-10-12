@@ -338,35 +338,43 @@ def run(project_path: str | None = None):
                 mapping[folder["id"]] = key
             local_projects = self.engine.local_projects() if self.engine else {}
             cloud_ids = set()
+            removed = []
             for project in self.remote:
-                fid = prism_folders.get(project.get("prism_project_id"))
-                parent = mapping.get(fid, "")
                 pid = project["id"]
                 cloud_ids.add(pid)
                 unavailable = unavailable_cloud_status(project)
                 if unavailable:
-                    details = unavailable
-                elif pid in local_projects:
-                    details = self.engine.status.get(pid, "Downloaded; waiting for sync")
-                else:
-                    details = "Cloud only"
-                key = "project:" + pid
-                name = ("[Removed from Prism] " if unavailable else "") + project["name"]
-                self.tree.insert(parent, "end", iid=key, text=name,
+                    removed.append((project, unavailable))
+                    continue
+                fid = prism_folders.get(project.get("prism_project_id"))
+                parent = mapping.get(fid, "")
+                details = (self.engine.status.get(pid, "Downloaded; waiting for sync")
+                           if pid in local_projects and self.engine else "Cloud only")
+                self.tree.insert(parent, "end", iid="project:" + pid, text=project["name"],
                                  values=("r" + str(project["head_revision"]), details))
-            # Projects absent from the remote list must remain visible as LOCAL
-            # copies. Never delete them just because access or listing changed.
+
+            # Prism is authoritative for active membership. Keep deleted
+            # projects and local checkouts in a separate recovery section,
+            # never erase their files or historical server revisions.
             missing = sorted(set(local_projects) - cloud_ids)
-            if missing:
+            if removed or missing:
                 group = "local:unavailable"
                 self.tree.insert("", "end", iid=group,
-                                 text="Local copies no longer available in cloud", values=("", ""))
+                                 text="Removed from Prism / unavailable (sync paused)",
+                                 values=("", ""))
+                for project, unavailable in removed:
+                    pid = project["id"]
+                    details = (unavailable if pid in local_projects else
+                               "Removed from Prism; no local checkout; server history retained")
+                    self.tree.insert(group, "end", iid="project:" + pid,
+                                     text=project["name"],
+                                     values=("r" + str(project["head_revision"]), details))
                 for pid in missing:
                     record = local_projects[pid]
                     self.tree.insert(group, "end", iid="project:" + pid,
-                        text=record.get("name") or pid,
-                        values=("r" + str(record.get("base_revision", "?")),
-                                unavailable_cloud_status(None)))
+                                     text=record.get("name") or pid,
+                                     values=("r" + str(record.get("base_revision", "?")),
+                                             unavailable_cloud_status(None)))
             if previous and self.tree.exists("project:" + previous):
                 self.tree.selection_set("project:" + previous)
 
