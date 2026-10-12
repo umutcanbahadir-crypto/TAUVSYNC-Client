@@ -6,7 +6,7 @@ with a dark UI, shared project browser, PCB thumbnails, automatic downloads,
 
 A successful Windows CI build produces **two downloadable files**:
 - \`TAUVSYNC.exe\` — standalone launcher; start TAUV before opening KiCad.
-- \`TAUVSYNC-KiCad10-2.1.0.zip\` — KiCad 10 PCM extension; launches the same app.
+- \`TAUVSYNC-KiCad10-2.1.1.zip\` — KiCad 10 PCM extension; launches the same app.
 
 No Git, SSH or separately installed Python is required for end users.
 **Keep TAUV running or minimized to continue automatic sync.**
