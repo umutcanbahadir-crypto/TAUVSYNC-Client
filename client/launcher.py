@@ -82,6 +82,7 @@ def runtime_self_test() -> None:
     import customtkinter
     from PIL import Image
     from tauvsync.api import PrismAPI
+    from tauvsync.launcher_ui import Workspace
     import tkinter
 
     assert LOGO_PATH.is_file(), "TAUV icon missing from bundled executable"
