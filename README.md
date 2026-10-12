@@ -1,84 +1,107 @@
-# TAUVSYNC Client
+# TAUV — KiCad Team Projects
 
-KiCad **10** desktop plugin and automatic project synchronizer for a separately managed TAUVSYNC / KiCAD Prism team server.
+A team project browser and automatic synchronization client for **KiCad 10**
+and the TAUVSYNC/Prism HTTPS backend.
 
-**This public repository contains only client source and client tests.** It includes no server source, GitHub token, SSH private key, accounts, database or deployment configuration. Cloning this repository does not grant access to anyone's Prism projects.
+**Status:** `2.0.0-beta.1` implementation branch, Windows x64 testing release.
+The existing `main` installation remains supported until the PCM build has
+been tested inside KiCad on a clean machine.
 
-**Status:** Team-testing release; Python-based installation, not a signed Windows installer. Supports KiCad 10 only.
+## One-package installation (Windows beta)
 
-## Install on Windows 10/11
+The intended end-user installation requires **no separate Python, Git or SSH**.
 
-1. Install **KiCad 10.0.x**. For team compatibility, ask the administrator which KiCad 10 patch version the server uses.
-2. Install **Python 3.11+** with Tkinter and Windows `py` launcher from [python.org](https://www.python.org/downloads/windows/). Verify with PowerShell:
+1. Download the tested `TAUVSYNC-KiCad10-2.0.0-beta.1.zip` PCM package from
+   the Windows build artifact or a future tagged release.
+2. Open KiCad 10 **Plugin and Content Manager → Install from File**.
+3. If KiCad's IPC API is disabled, enable it in **Preferences → Plugins**
+   and restart PCB Editor. KiCad 10 only exposes these plugins in PCB Editor.
+4. Open **PCB Editor → Tools → External Plugins → TAUV Team Projects**,
+   or use the plugin's toolbar button.
+5. Sign in with your existing team account. The server field defaults to
+   `https://tauvsync-gateway.umutcanbahadir.workers.dev`.
+6. Choose the local TAUVSYNC workspace and open a managed project.
 
-   ```powershell
-   py -3 --version
-   py -3 -c "import tkinter; print('Tkinter OK')"
-   ```
+**Important:** The executable PCM integration has not yet been validated on a
+real KiCad 10 installation. Do not uninstall an existing working plugin until
+the new one starts, authenticates and synchronizes a disposable test project.
 
-3. Click **Code → Download ZIP** on this GitHub repository and extract it, or clone without any token:
+## What the extension provides
 
-   ```powershell
-   git clone https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client.git
-   cd TAUVSYNC-Client
-   ```
+- TAUV-branded dashboard and KiCad toolbar icon from the team's supplied logo.
+- HTTPS-only login using the existing backend accounts and permissions.
+- Optional remembered login encrypted with Windows DPAPI (no plaintext passwords).
+- Browse, search, upload and open shared KiCad projects.
+- Automatically detect and publish saved changes (settling time ~8 seconds).
+- Poll incoming revisions (~5 seconds) and protect open editors/local changes.
+- Download historical snapshots or restore an older revision as a new head.
+- Pause synchronization when a project is removed from the web workspace,
+  **preserving local copies**.
+- Multiple launches focus the existing window on Windows rather than start
+  a second synchronization engine.
 
-   For ZIP users, open the extracted folder that contains the `client` directory. Type `powershell` in File Explorer's address bar to open a terminal there.
+**Synchronization runs while the TAUV dashboard stays open or minimized.**
+Closing it stops synchronization. A separate tray agent, resumable upload,
+automatic conflict merge, and project-specific KiCad editor detection are
+future milestones and have not been implemented in this beta.
 
-4. **Close KiCad and PCB Editor**. From the repository root run:
+The client never modifies the original local project folder during an initial
+upload; it creates a separate **managed checkout**. Continue editing the
+managed checkout for automatic publishing.
 
-   ```powershell
-   py -3 client/kicad_plugin/install.py 10.0
-   ```
+## Developer workflow (Windows)
 
-5. Restart **KiCad 10 → PCB Editor → Tools → External Plugins → TAUVSYNC — Team Projects**.
-6. Enter the **current HTTPS Prism server address provided by your administrator**, your personal Prism email/password, and a local workspace such as `C:\Users\YOUR_USERNAME\TAUVSYNC`. **Leave automatic SSH disabled** when using HTTPS. Click **Log in**.
-7. Open a shared project from TAUVSYNC and edit that downloaded **managed copy** in KiCad. Keep TAUVSYNC running/minimized so changes synchronize.
+The repository is public client source only. It contains no server credentials
+or private key material. The backend is deployed separately.
 
-### What synchronization does
-
-- Saved project changes are automatically published after about **8 seconds** of inactivity. The client checks for new remote revisions about every **5 seconds** while running.
-- Incoming revisions are not installed over unsaved/local changes or while KiCad PCB/Schematic Editors are open.
-- Divergent edits are preserved as separate revisions for manual conflict resolution; they are not automatically merged.
-- Uploading an existing local KiCad project leaves its original folder intact and creates a **separate managed checkout**. Continue editing the managed checkout if you want auto-sync.
-- Only authorized Prism Designer/Admin users can publish; Viewer users can read. The server enforces account permissions.
-- Windows **Remember email and password** uses Windows DPAPI encryption; do not share user accounts.
-- Use a stable HTTPS server URL for team operation. Cloudflare Quick Tunnel links are temporary.
-
-### Update
-
-Close TAUVSYNC and KiCad. Download the latest ZIP or run `git pull --ff-only` in the clone, then reinstall:
-
-```powershell
-py -3 client/kicad_plugin/install.py 10.0
-```
-
-The installer uses your per-user KiCad plugins folder, supports redirected/OneDrive Documents and backs up older plugin versions.
-
-## Troubleshooting
-
-| Problem | Resolution |
-| --- | --- |
-| `py` missing | Install the Windows Python launcher; reopen PowerShell. |
-| `No module named tkinter` | Install Python with Tcl/Tk. |
-| Plugin is missing | Restart KiCad **PCB Editor**, check KiCad 10 and rerun the installer. |
-| Login fails | Confirm your Prism account and the administrator-provided HTTPS URL; complete any password-change prompt on Prism's website. |
-| No projects | Ask your administrator to confirm your Prism account and projects. |
-| Saves not syncing | Work in the **managed checkout**, keep TAUVSYNC running, and use a Designer/Admin role. |
-| New revision not installed | Close PCB Editor and Schematic Editor when the checkout is unchanged. |
-| Conflict | Preserve local work as an alternate revision before explicitly choosing the latest server copy. |
-
-## Developers
-
-The KiCad PCB Editor launcher is at `client/kicad_plugin/`, and the standalone Tkinter client is at `client/tauvsync/`. Tests run locally without requiring a real server:
+Legacy development installation (still supported on `main`):
 
 ```powershell
-py -3 -m unittest discover -s client/tests -v
-py -3 -m compileall -q client
+py -3.12 client/kicad_plugin/install.py 10.0
 ```
 
-Optional built-in SSH forwarding exists only for users already authorized to access their own server over SSH. Normal team clients use HTTPS. No Oracle server address or SSH key ships in this repository.
+Build self-contained Windows executable and PCM ZIP on this development branch:
 
-**Security:** No access tokens are required to download this public repository. Do not commit local state, passwords, cookies, SSH keys, `.env` files or real KiCad projects. Server access control must be enforced server-side; client code is public by design.
+```powershell
+py -3.12 -m pip install pyinstaller
+py -3.12 -m PyInstaller --noconfirm --clean --onefile --windowed --name TAUVSYNC --paths client --add-data "client/tauvsync/resources;tauvsync/resources" client/launcher.py
+py -3.12 packaging/build_pcm.py
+```
 
-**Licensing:** No separate reuse license for TAUVSYNC client code has been declared yet. Public source visibility does not itself grant an open-source license. This repository does not copy the upstream KiCAD Prism server application.
+CI also builds and uploads the PCM ZIP from Windows runners.
+
+Run unit and packaging tests on any platform:
+
+```powershell
+py -3.12 -m unittest discover -s client/tests -v
+py -3.12 -m compileall -q client packaging
+```
+
+The packaging configuration is in `packaging/pcm/plugin.json` and
+`packaging/build_pcm.py`. No runtime Python is needed for the packaged
+`.exe`; Python is still required to **build** it.
+
+### Migration and data protection
+
+The upgrade reuses `~/.tauvsync-client.json`, Windows DPAPI credentials, and
+the user's local managed workspace. Obsolete SSH settings from previous
+releases are ignored and dropped when settings are next saved. The development
+branch does not delete checkouts, state files or passwords on upgrade.
+
+If the legacy SWIG and new IPC variants are both installed, KiCad may show
+duplicate actions. Remove the legacy `tauvsync_plugin` from KiCad's user
+scripting/plugins folder **only after** confirming the IPC variant works.
+Do not delete the managed project workspace.
+
+### Constraints
+
+- Supports KiCad **10.0.x** (Windows x64 package first).
+- The KiCad 10 IPC plugin cannot add UI to the Project Manager home screen.
+- Cloudflare gateway limits may reject uploads before the server's 512 MiB
+  archive maximum. Size and transfer handling needs end-to-end testing.
+- Conflict resolution keeps both designs; it does not merge schematics/PCBs.
+- Removed historical projects with missing Git repositories cannot be restored
+  from SQLite metadata alone.
+- PCM publishing to the official KiCad repository requires a compatible
+  open-source license. No such license is declared for this source repository;
+  the current package is a testing ZIP for direct/private installation.
