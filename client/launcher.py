@@ -79,6 +79,8 @@ def current_project_from_kicad() -> Path | None:
 def runtime_self_test() -> None:
     """Exercise the actual frozen runtime without needing KiCad or a network."""
     from tauvsync.app import LOGO_PATH, DEFAULT_SERVER
+    import customtkinter
+    from PIL import Image
     from tauvsync.api import PrismAPI
     import tkinter
 
@@ -104,10 +106,10 @@ def main(argv: list[str] | None = None) -> int:
 
         # Import Tkinter and application resources here, inside the crash
         # reporter, rather than at module import time.
-        from tauvsync.app import run
+        from tauvsync.launcher_ui import run_launcher
         project = current_project_from_kicad()
         log_event("Launching TAUV dashboard")
-        run(str(project) if project else None)
+        run_launcher(str(project) if project else None)
         log_event("TAUV dashboard closed normally")
         return 0
     except Exception:
