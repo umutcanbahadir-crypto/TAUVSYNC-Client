@@ -89,6 +89,29 @@ class PrismAPI:
     def projects(self) -> list[dict]:
         return self._json("/api/tauvsync/projects")
 
+    def thumbnail(self, prism_project_id: str, *, max_bytes: int = 8 * 1024 * 1024) -> bytes | None:
+        """Fetch a registered Prism project's cached PCB thumbnail.
+
+        A missing preview is normal for a newly created/empty project.
+        Never pull large binary data into the UI or follow cross-origin redirects.
+        """
+        project = str(prism_project_id)
+        if not re.fullmatch(r"[a-zA-Z0-9-]{1,64}", project):
+            raise ValueError("Invalid Prism project identifier")
+        try:
+            with self._request(f"/api/projects/{project}/thumbnail") as response:
+                content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+                if content_type not in ("image/png", "image/jpeg", "image/webp"):
+                    raise APIError("Server returned an unsupported preview format")
+                raw = response.read(max_bytes + 1)
+                if len(raw) > max_bytes:
+                    raise APIError("Project preview exceeds 8 MiB")
+                return raw
+        except APIError as error:
+            if error.status == 404:
+                return None
+            raise
+
     def revisions(self, project_id: str) -> list[dict]:
         return self._json(f"/api/tauvsync/projects/{_id(project_id)}/revisions")
 
