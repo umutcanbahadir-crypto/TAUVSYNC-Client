@@ -54,8 +54,10 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Publish tested Windows PCM package
-    if: startsWith(github.ref, 'refs/tags/client-v')
+    name: Publish direct Windows EXE download
+    # Only the tested main-branch build is published; PRs and feature branches
+    # never create public release assets.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: tests
     runs-on: ubuntu-latest
     permissions:
@@ -65,8 +67,30 @@ jobs:
         with:
           name: TAUVSYNC-KiCad10-Windows-testing
           path: release
-      - name: Create GitHub pre-release
+      - name: Verify assets and create EXE checksum
+        run: |
+          set -euo pipefail
+          test -s release/TAUVSYNC.exe
+          test -s release/TAUVSYNC-KiCad10-2.1.1.zip
+          test -s release/TAUVSYNC-KiCad10-2.1.1.zip.sha256
+          (cd release && sha256sum TAUVSYNC.exe > TAUVSYNC.exe.sha256)
+      - name: Create direct-download GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" release/TAUVSYNC-KiCad10-*.zip release/TAUVSYNC-KiCad10-*.zip.sha256 --title "TAUV Team Projects $GITHUB_REF_NAME" --prerelease --verify-tag --repo "$GITHUB_REPOSITORY"
+          set -euo pipefail
+          VERSION=v2.1.1
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists; not replacing immutable versioned assets."
+            exit 0
+          fi
+          gh release create "$VERSION" \
+            release/TAUVSYNC.exe \
+            release/TAUVSYNC.exe.sha256 \
+            release/TAUVSYNC-KiCad10-2.1.1.zip \
+            release/TAUVSYNC-KiCad10-2.1.1.zip.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "TAUV Client 2.1.1 — Windows beta" \
+            --notes "Standalone TAUV Team Workspace for Windows 10/11 x64 with KiCad 10 support. Download TAUVSYNC.exe and run it directly (no Python/Git/SSH required). For the KiCad toolbar extension, install TAUVSYNC-KiCad10-2.1.1.zip using KiCad Plugin and Content Manager. Requires an authorized account on the separate TAUVSYNC server. Unsigned beta; keep the app open/minimized for synchronization." \
+            --prerelease
