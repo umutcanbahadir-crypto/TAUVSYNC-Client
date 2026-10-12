@@ -87,7 +87,37 @@ class PrismAPI:
             self.cookies.clear()
 
     def projects(self) -> list[dict]:
-        return self._json("/api/tauvsync/projects")
+        """Return live TAUV projects and reconcile registrations with Prism.
+
+        No-cache headers prevent intermediary caches retaining deleted rows.
+        Prism's registry is authoritative; an unavailable registry endpoint
+        falls back to the existing TAUVSYNC cloud_state rather than hiding
+        projects speculatively.
+        """
+        with self._request(
+            "/api/tauvsync/projects",
+            headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+        ) as response:
+            projects = json.load(response)
+        if not isinstance(projects, list):
+            raise APIError("Invalid cloud project listing")
+        try:
+            with self._request(
+                "/api/projects/",
+                headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+            ) as response:
+                registered = json.load(response)
+            if not isinstance(registered, list):
+                raise ValueError("Invalid Prism registry")
+            active_ids = {str(p["id"]) for p in registered if isinstance(p, dict) and p.get("id")}
+        except (APIError, ValueError, KeyError):
+            return projects
+
+        for item in projects:
+            prism_id = item.get("prism_project_id")
+            if prism_id and str(prism_id) not in active_ids:
+                item["cloud_state"] = "missing_prism"
+        return projects
 
     def thumbnail(self, prism_project_id: str, *, max_bytes: int = 8 * 1024 * 1024) -> bytes | None:
         """Fetch a registered Prism project's cached PCB thumbnail.
