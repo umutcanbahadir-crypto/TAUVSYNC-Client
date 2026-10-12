@@ -12,7 +12,7 @@ The artifact contains two **different** installers/launchers:
 
 - \`TAUVSYNC.exe\`: **standalone application** — double-click to launch TAUV
   before opening KiCad. No external Python runtime required.
-- \`TAUVSYNC-KiCad10-2.1.0.zip\`: install through KiCad 10 **Plugin and Content
+- \`TAUVSYNC-KiCad10-2.1.1.zip\`: install through KiCad 10 **Plugin and Content
   Manager → Install from File**. This opens the same TAUV desktop workspace
   from the PCB Editor toolbar.
 
