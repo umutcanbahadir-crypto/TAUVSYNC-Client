@@ -18,6 +18,9 @@ import traceback
 
 
 def log_path() -> Path:
+    if sys.platform == "linux":
+        state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
+        return state / "tauvsync" / "launcher.log"
     base = os.environ.get("LOCALAPPDATA") or str(Path.home())
     return Path(base) / "TAUVSYNC" / "logs" / "launcher.log"
 
@@ -94,15 +97,33 @@ def runtime_self_test() -> None:
     log_event("SELF-TEST OK: bundled icon, HTTPS client and Tcl runtime")
 
 
+def gui_runtime_self_test() -> None:
+    """Create the real desktop window without connecting to a remote server."""
+    from tauvsync.launcher_ui import Workspace
+    app = Workspace()
+    try:
+        app.update_idletasks()
+        app.update()
+        log_event("GUI-SELF-TEST OK: desktop application instantiated")
+    finally:
+        app.stop.set()
+        app.destroy()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--gui-self-test", action="store_true")
     options, _unknown = parser.parse_known_args(argv)
     log_event("Starting TAUVSYNC executable")
 
     try:
         if options.self_test:
             runtime_self_test()
+            return 0
+        if options.gui_self_test:
+            runtime_self_test()
+            gui_runtime_self_test()
             return 0
 
         # Import Tkinter and application resources here, inside the crash
