@@ -605,33 +605,100 @@ class Workspace(ctk.CTk):
                 self._select(project["id"])
                 self._set_status("Created " + project["name"] + " as cloud revision r1.")
                 if should_open:
-                    open_kicad(path)
+                    self._task("Acquiring edit lock…",
+                               lambda: self.api.acquire_edit_lock(project["id"]),
+                               lambda _lease: (self._lease_renew_at.__setitem__(
+                                   project["id"], time.monotonic()), open_kicad(path),
+                                   self._refresh()))
             self._task("Creating KiCad project and first cloud revision…", work, done)
         ctk.CTkButton(dialog, text="Create project", height=42, command=create).pack(fill="x", padx=24, pady=(12, 0))
         name.focus_set()
 
     def _open_selected(self):
         project = self._selected()
-        if not project or not self.engine:
+        if not project or not self.engine or not self.api:
             self._set_status("Select a project first.")
             return
         pid = project["id"]
         if unavailable_cloud_status(project):
             existing = self.engine.local_projects().get(pid)
             if not existing:
-                messagebox.showwarning("TAUV", "Project was removed and no local copy exists.", parent=self)
+                messagebox.showwarning("TAUV", "Project removed; no local checkout.", parent=self)
                 return
-            path = self.engine.folder(pid) / existing["project_file"]
-            open_kicad(path)
+            open_kicad(self.engine.folder(pid) / existing["project_file"])
             return
+        if self.user.get("role") not in ("designer", "admin"):
+            messagebox.showinfo(
+                "TAUV — Viewer",
+                "Only a Designer or Admin may open a shared project for editing. "
+                "Use History to download a snapshot.", parent=self)
+            return
+        lease = project.get("edit_lock") or {}
+        if lease and not self.api.has_edit_lock(pid):
+            messagebox.showinfo(
+                "TAUV — Project locked",
+                "This project is currently being edited by " + str(lease["owner"]) +
+                ". Another user cannot open it for editing or publish changes. "
+                "Use History to download a snapshot.", parent=self)
+            return
+
         def work():
-            # Checking out a known project never overwrites an existing local copy.
-            return self.engine.checkout(project)
+            held = self.api.has_edit_lock(pid)
+            if held:
+                self.api.renew_edit_lock(pid)
+            else:
+                self.api.acquire_edit_lock(pid)
+            self._lease_renew_at[pid] = time.monotonic()
+            try:
+                return self.engine.checkout(project)
+            except Exception:
+                if not held:
+                    try:
+                        self.api.release_edit_lock(pid)
+                    except APIError:
+                        pass
+                raise
+
         def done(path):
             open_kicad(path)
-            self._set_status("Opened managed project: " + project["name"])
+            self._set_status("Exclusive editing lock acquired for " + project["name"])
             self._select(pid)
-        self._task("Preparing managed KiCad project…", work, done)
+            self._refresh()
+
+        self._task("Acquiring exclusive editing lock…", work, done)
+
+    def _release_selected_lock(self):
+        project = self._selected()
+        if not project or not self.api or not self.engine:
+            self._set_status("Select a project first.")
+            return
+        pid = project["id"]
+        if not self.api.has_edit_lock(pid):
+            self._set_status("You don't own this editing lock.")
+            return
+        if editor_running():
+            messagebox.showwarning("TAUV", "Close KiCad schematic and PCB editors before unlocking.", parent=self)
+            return
+        if not messagebox.askyesno(
+            "Release editing lock", "Allow other users to edit " + project["name"] + "?",
+            parent=self):
+            return
+
+        def work():
+            record = self.engine.local_projects().get(pid)
+            if record:
+                from .sync import stat_manifest, hash_manifest
+                folder = self.engine.folder(pid)
+                if hash_manifest(folder, stat_manifest(folder)) != record["files"]:
+                    raise RuntimeError("Unsynchronized local changes. Sync and save before unlocking.")
+            return self.api.release_edit_lock(pid)
+
+        def done(_result):
+            self._lease_renew_at.pop(pid, None)
+            self._set_status("Editing lock released; project history is preserved.")
+            self._refresh()
+
+        self._task("Releasing editing lock…", work, done)
 
     def _import_existing(self):
         if not self.engine or not self.api:
@@ -667,7 +734,11 @@ class Workspace(ctk.CTk):
             self._select(project["id"])
             self._set_status("Imported as " + project["name"] + ". Your original files are unchanged.")
             if messagebox.askyesno("TAUV", "Open the synchronized managed copy now?", parent=self):
-                open_kicad(path)
+                self._task("Acquiring edit lock…",
+                           lambda: self.api.acquire_edit_lock(project["id"]),
+                           lambda _lease: (self._lease_renew_at.__setitem__(
+                               project["id"], time.monotonic()), open_kicad(path),
+                               self._refresh()))
         def import_work():
             fresh = self.api.projects()
             unique_name = next_available_name(name, fresh)
@@ -720,6 +791,9 @@ class Workspace(ctk.CTk):
                 "Restore revision", f"Publish r{rev} as a new HEAD revision?\n"
                 "All historical versions are preserved.", parent=win):
                 return
+            if not self.api.has_edit_lock(project["id"]):
+                messagebox.showwarning("TAUV", "Open the project to acquire its edit lock before restoring.", parent=win)
+                return
             self._task("Restoring r" + str(rev) + "…",
                        lambda: self.api.restore(project["id"], rev),
                        lambda _result: (self._set_status("Revision restored; refresh projects."), self._refresh()))
@@ -730,7 +804,15 @@ class Workspace(ctk.CTk):
         ctk.CTkButton(actions, text="Close", command=win.destroy).pack(side="right")
 
     def _logout(self):
+        if self.api and self.api.edit_tokens and editor_running():
+            messagebox.showwarning(
+                "TAUV", "Close KiCad before signing out; sign-out stops lock renewal.",
+                parent=self)
+            return
         self.stop.set()
+        if self.api:
+            self.api.timeout = min(self.api.timeout, 5)
+            self.api.release_all_edit_locks()
         if self.api:
             try:
                 self.api.cookies.clear()
@@ -742,10 +824,14 @@ class Workspace(ctk.CTk):
 
     def _on_close(self):
         if self.connected and not messagebox.askyesno(
-            "Exit TAUV", "Exit TAUV and stop automatic synchronization?\n"
-            "Minimize instead to keep syncing.", parent=self):
+            "Exit TAUV", "Exit TAUV and release editing locks?\n"
+            "Close KiCad first; minimize TAUV to keep locks active.",
+            parent=self):
             return
         self.stop.set()
+        if self.api:
+            self.api.timeout = min(self.api.timeout, 5)
+            self.api.release_all_edit_locks()
         self.destroy()
 
 
