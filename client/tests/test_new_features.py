@@ -81,7 +81,8 @@ class LocalUploadTests(unittest.TestCase):
 class CredentialTests(unittest.TestCase):
     def test_password_never_in_preferences_and_login_store_is_opt_in(self):
         with tempfile.TemporaryDirectory() as home:
-            with mock.patch.object(credentials, "CREDENTIALS", Path(home) / "login.dpapi"):
+            with mock.patch.object(credentials.sys, "platform", "win32"), \
+                 mock.patch.object(credentials, "CREDENTIALS", Path(home) / "login.dpapi"):
                 def fake_protect(data, *, decrypt=False):
                     return data[::-1]
                 with mock.patch.object(credentials, "_protect", side_effect=fake_protect):
