@@ -81,7 +81,7 @@ jobs:
           ldd --version | head -1
           python -m pip install pyinstaller kicad-python==0.8.0 customtkinter==5.2.2 pillow==11.3.0
           python -m unittest discover -s client/tests -v
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name TAUVSYNC --paths client --collect-all customtkinter --hidden-import kipy --add-data "client/tauvsync/resources:tauvsync/resources" client/launcher.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name TAUVSYNC --paths client --collect-all customtkinter --hidden-import PIL._tkinter_finder --hidden-import kipy --add-data "client/tauvsync/resources:tauvsync/resources" client/launcher.py
           file dist/TAUVSYNC
           test -x dist/TAUVSYNC
       - name: Validate frozen Linux launcher and real Tk window
