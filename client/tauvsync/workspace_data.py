@@ -79,3 +79,11 @@ def latest_authors(api, projects: list[dict], cached: dict[tuple[str, int], str]
                 pass
         result[key] = author
     return result
+
+
+def synced_status_label(status: str | None) -> str | None:
+    """Only confirmed, fully synchronized revisions get green badges."""
+    if not isinstance(status, str):
+        return None
+    cleaned = status.strip()
+    return cleaned if re.fullmatch(r"Synced r[0-9]+", cleaned) else None

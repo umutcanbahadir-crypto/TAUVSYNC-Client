@@ -17,10 +17,10 @@
       ],
       "entrypoint": "TAUVSYNC.exe",
       "icons-light": [
-        "tauv_icon_24.png"
+        "tauv_transparent_24.png"
       ],
       "icons-dark": [
-        "tauv_icon_24.png"
+        "tauv_transparent_24.png"
       ]
     }
   ]

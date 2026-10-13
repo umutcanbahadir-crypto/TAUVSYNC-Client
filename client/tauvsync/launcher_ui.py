@@ -7,6 +7,8 @@ All network and filesystem operations run off the UI thread.
 from __future__ import annotations
 
 import io
+import sys
+import tkinter as tk
 from pathlib import Path
 import queue
 import threading
@@ -23,7 +25,7 @@ from .credentials import load_login, store_login, forget_login, CredentialStoreU
 from .instance import AlreadyRunning, single_instance, focus_existing_window
 from .project_templates import create_cloud_project
 from .sync import SyncEngine, editor_running, unavailable_cloud_status
-from .workspace_data import next_available_name, reconcile_projects, latest_authors
+from .workspace_data import next_available_name, reconcile_projects, latest_authors, synced_status_label
 
 BG = "#08090b"
 CARD = "#0c0d10"
@@ -36,19 +38,13 @@ APP_TITLE = "TAUV — Team Workspace"
 
 
 def _logo(size: int) -> ctk.CTkImage | None:
+    """Display the supplied logo's true alpha channel without RGB keying."""
     if not LOGO_PATH.is_file():
         return None
     try:
-        src = Image.open(LOGO_PATH).convert("RGBA")
-        # Make the navy backdrop of the original supplied icon transparent
-        # while retaining its white anti-aliased geometry.
-        src = src.resize((size * 2, size * 2), Image.Resampling.LANCZOS)
-        alpha = Image.new("L", src.size)
-        alpha.putdata([max(0, min(255, round((max(r, g, b) - 15) * 255 / 235)))
-                       for r, g, b, _ in src.getdata()])
-        white = Image.new("RGBA", src.size, (255, 255, 255, 255))
-        white.putalpha(alpha)
-        return ctk.CTkImage(light_image=white, dark_image=white, size=(size, size))
+        with Image.open(LOGO_PATH) as asset:
+            src = asset.convert("RGBA")
+        return ctk.CTkImage(light_image=src, dark_image=src, size=(size, size))
     except (OSError, ValueError):
         return None
 
@@ -60,6 +56,17 @@ class Workspace(ctk.CTk):
         self.geometry("1040x780")
         self.minsize(780, 595)
         self.configure(fg_color=BG)
+        self._window_icon = None
+        try:
+            if LOGO_PATH.is_file():
+                self._window_icon = tk.PhotoImage(file=str(LOGO_PATH))
+                self.iconphoto(True, self._window_icon)
+            if sys.platform == "win32":
+                ico = LOGO_PATH.with_name("tauv_app.ico")
+                if ico.is_file():
+                    self.iconbitmap(str(ico))
+        except (OSError, tk.TclError):
+            pass  # Icon errors must never prevent application startup.
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.launch_project = Path(current_project) if current_project else None
         self.settings = load_preferences()
@@ -169,6 +176,17 @@ class Workspace(ctk.CTk):
         self.project_name.pack(fill="x", pady=(5, 4))
         self.project_info = self._text(self.project_text, "Select an item above to see details.", 12, color=SUBTLE, anchor="w", justify="left")
         self.project_info.pack(fill="x")
+        self.sync_badge = ctk.CTkLabel(
+            self.project_text,
+            text="",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#f0fff4",
+            fg_color="#17683f",
+            corner_radius=7,
+            width=110,
+            height=26,
+        )
+        self.sync_badge.pack_forget()
 
         buttons = ctk.CTkFrame(self.main, fg_color="transparent")
         buttons.pack(fill="x", padx=18, pady=(0, 16))
@@ -433,6 +451,7 @@ class Workspace(ctk.CTk):
         if not project:
             self.project_name.configure(text="Project removed from server")
             self.project_info.configure(text="No cloud entry. Local copies are preserved.")
+            self.sync_badge.pack_forget()
             self.preview.configure(text="No preview", image=None)
             return
         pid = project["id"]
@@ -442,9 +461,18 @@ class Workspace(ctk.CTk):
             info += "  •  Author: " + str(author)
         local = self.engine.local_projects() if self.engine else {}
         info += "  •  " + ("Downloaded" if pid in local else "Cloud only")
-        if self.engine and pid in self.engine.status:
-            info += "\n" + self.engine.status[pid]
-        if unavailable_cloud_status(project):
+        current_status = self.engine.status.get(pid) if self.engine else None
+        removed = bool(unavailable_cloud_status(project))
+        badge = synced_status_label(current_status) if not removed else None
+        if badge:
+            self.sync_badge.configure(text=badge)
+            if not self.sync_badge.winfo_manager():
+                self.sync_badge.pack(anchor="w", pady=(7, 4))
+        else:
+            self.sync_badge.pack_forget()
+            if current_status:
+                info += "\n" + current_status
+        if removed:
             info += "\nRemoved from the shared workspace; local files are preserved."
         self.project_name.configure(text=project["name"])
         self.project_info.configure(text=info)

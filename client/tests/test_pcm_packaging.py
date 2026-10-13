@@ -22,7 +22,7 @@ class IPCPackageTests(unittest.TestCase):
 
     def test_icons_exist_and_are_real_png(self):
         for size in (24, 64):
-            icon = ROOT / "client" / "tauvsync" / "resources" / f"tauv_icon_{size}.png"
+            icon = ROOT / "client" / "tauvsync" / "resources" / f"tauv_transparent_{size}.png"
             self.assertTrue(icon.is_file())
             self.assertTrue(icon.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"))
 
@@ -36,7 +36,7 @@ class IPCPackageTests(unittest.TestCase):
             with ZipFile(output) as z:
                 self.assertEqual(set(z.namelist()), {
                     "metadata.json", "plugins/plugin.json",
-                    "plugins/TAUVSYNC.exe", "plugins/tauv_icon_24.png",
+                    "plugins/TAUVSYNC.exe", "plugins/tauv_transparent_24.png",
                     "resources/icon.png",
                 })
                 self.assertEqual(z.read("plugins/TAUVSYNC.exe"), b"MZdummy")

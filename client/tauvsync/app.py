@@ -23,7 +23,7 @@ from .sync import SyncEngine, SyncUnsafe, editor_running, unavailable_cloud_stat
 
 SETTINGS = Path.home() / ".tauvsync-client.json"
 DEFAULT_SERVER = "https://tauvsync-gateway.umutcanbahadir.workers.dev"
-LOGO_PATH = Path(__file__).resolve().parent / "resources" / "tauv_icon_64.png"
+LOGO_PATH = Path(__file__).resolve().parent / "resources" / "tauv_transparent_64.png"
 
 
 def load_preferences() -> dict:

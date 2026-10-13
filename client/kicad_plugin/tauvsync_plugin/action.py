@@ -15,7 +15,7 @@ class TauvsyncAction(pcbnew.ActionPlugin):
         self.category = "Collaboration"
         self.description = "Open TAUV team projects and synchronize KiCad designs"
         self.show_toolbar_button = True
-        self.icon_file_name = str(Path(__file__).resolve().parent / "tauvsync" / "resources" / "tauv_icon_24.png")
+        self.icon_file_name = str(Path(__file__).resolve().parent / "tauvsync" / "resources" / "tauv_transparent_24.png")
 
     def Run(self):
         build = str(pcbnew.GetBuildVersion())

@@ -9,6 +9,8 @@ Browse shared projects, preview rendered PCB images, create new KiCad designs, d
 
 ### [Download TAUVSYNC.exe directly](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.1.1/TAUVSYNC.exe)
 
+The above link downloads the EXE directly once the versioned GitHub Release has been published. It does not require opening a GitHub Actions artifact.
+
 **[All downloads and release notes](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/tag/v2.1.1)** | [KiCad 10 plugin ZIP](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.1.1/TAUVSYNC-KiCad10-2.1.1.zip) | [Windows EXE checksum](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.1.1/TAUVSYNC.exe.sha256)
 
 The standalone EXE and KiCad plugin are **two ways to open the same TAUV workspace**. Install either or both.
@@ -83,7 +85,8 @@ To build on Windows:
 
 ```powershell
 py -3.12 -m pip install pyinstaller kicad-python==0.8.0 customtkinter==5.2.2 pillow==11.3.0
-py -3.12 -m PyInstaller --noconfirm --clean --onefile --windowed --name TAUVSYNC --paths client --collect-all customtkinter --add-data "client/tauvsync/resources;tauvsync/resources" client/launcher.py
+py -3.12 scripts/generate_windows_icon.py
+py -3.12 -m PyInstaller --noconfirm --clean --onefile --windowed --icon client/tauvsync/resources/tauv_app.ico --name TAUVSYNC --paths client --collect-all customtkinter --add-data "client/tauvsync/resources;tauvsync/resources" client/launcher.py
 py -3.12 packaging/build_pcm.py
 ```
 

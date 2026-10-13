@@ -54,8 +54,8 @@ def build(executable: Path, output: Path) -> Path:
     if not executable.is_file() or executable.suffix.lower() != ".exe":
         raise FileNotFoundError("Expected bundled Windows TAUVSYNC.exe")
     manifest = ROOT / "packaging" / "pcm" / "plugin.json"
-    icon24 = ROOT / "client" / "tauvsync" / "resources" / "tauv_icon_24.png"
-    icon64 = ROOT / "client" / "tauvsync" / "resources" / "tauv_icon_64.png"
+    icon24 = ROOT / "client" / "tauvsync" / "resources" / "tauv_transparent_24.png"
+    icon64 = ROOT / "client" / "tauvsync" / "resources" / "tauv_transparent_64.png"
     plugin = json.loads(manifest.read_text(encoding="utf-8"))
     info = metadata()
     if plugin["runtime"]["type"] != "exec":
@@ -67,12 +67,12 @@ def build(executable: Path, output: Path) -> Path:
         package.writestr("metadata.json", json.dumps(info, indent=2) + "\n")
         package.write(manifest, "plugins/plugin.json")
         package.write(executable, "plugins/TAUVSYNC.exe")
-        package.write(icon24, "plugins/tauv_icon_24.png")
+        package.write(icon24, "plugins/tauv_transparent_24.png")
         package.write(icon64, "resources/icon.png")
     with ZipFile(output) as package:
         names = set(package.namelist())
         expected = {"metadata.json", "plugins/plugin.json",
-                    "plugins/TAUVSYNC.exe", "plugins/tauv_icon_24.png", "resources/icon.png"}
+                    "plugins/TAUVSYNC.exe", "plugins/tauv_transparent_24.png", "resources/icon.png"}
         if names != expected or package.testzip() is not None:
             raise ValueError("Invalid KiCad PCM archive")
     digest = hashlib.sha256(output.read_bytes()).hexdigest()
