@@ -11,12 +11,16 @@ from client.tauvsync.update_check import (
 )
 
 
-def release(tag, *, draft=False, exe=True):
+def release(tag, *, draft=False, exe=True, linux=False):
     return {
         "tag_name": tag,
         "draft": draft,
         "prerelease": True,
-        "assets": [{"name": "TAUVSYNC.exe"}] if exe else [{"name": "README.txt"}],
+        "assets": (
+            ([{"name": "TAUVSYNC.exe"}] if exe else []) +
+            ([{"name": "tauvsync_2.3.0_amd64.deb"}] if linux else [])
+            or [{"name": "README.txt"}]
+        ),
     }
 
 
@@ -35,7 +39,7 @@ class UpdateCheckTests(unittest.TestCase):
             release("v2.3.0-beta.1"),
             release("v2.2.9"),
             release("v2.3.0-beta.2"),
-        ])
+        ], platform="win32")
         self.assertEqual(result, AvailableUpdate(
             version="2.3.0-beta.2",
             release_url="https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/tag/v2.3.0-beta.2",
@@ -45,16 +49,24 @@ class UpdateCheckTests(unittest.TestCase):
         self.assertIsNone(select_update([
             release("v2.2.0"), release("v99.0.0", draft=True),
             release("v5.0.0", exe=False),
-        ]))
+        ], platform="win32"))
 
     def test_fetches_public_releases_instead_of_stable_only_latest(self):
         data = json.dumps([release("v2.2.2")]).encode("utf-8")
         with mock.patch("client.tauvsync.update_check.urlopen", return_value=io.BytesIO(data)) as call:
-            update = check_for_update()
+            with mock.patch("client.tauvsync.update_check.sys.platform", "win32"):
+                update = check_for_update()
         self.assertEqual(update.version, "2.2.2")
         self.assertEqual(call.call_args.kwargs["timeout"], 4.0)
         self.assertEqual(call.call_args.args[0].full_url, RELEASES_API)
         self.assertIn("/releases?per_page=", RELEASES_API)
+
+    def test_linux_requires_linux_assets_not_just_windows_exe(self):
+        releases = [release("v2.3.0"), release("v2.2.2", exe=False, linux=True)]
+        update = select_update(releases, platform="linux")
+        self.assertEqual(update.version, "2.2.2")
+        self.assertIsNone(select_update([release("v2.5.0")], platform="linux"))
+        self.assertIsNone(select_update([release("v2.5.0", linux=True)], platform="darwin"))
 
     def test_offline_rate_limit_and_malformed_json_fail_silently(self):
         with mock.patch("client.tauvsync.update_check.urlopen", side_effect=URLError("offline")):
