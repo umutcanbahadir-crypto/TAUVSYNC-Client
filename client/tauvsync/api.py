@@ -194,6 +194,15 @@ class PrismAPI:
             except APIError:
                 pass
 
+    def force_release_edit_lock(self, project_id: str) -> dict:
+        """Admin-only server endpoint; never infer administrator privileges here."""
+        result = self._json(
+            f"/api/tauvsync/projects/{_id(project_id)}/edit-lock/force",
+            method="DELETE", payload={},
+        )
+        self.edit_tokens.pop(project_id, None)
+        return result
+
     def revisions(self, project_id: str) -> list[dict]:
         return self._json(f"/api/tauvsync/projects/{_id(project_id)}/revisions")
 
