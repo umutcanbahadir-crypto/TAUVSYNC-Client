@@ -13,6 +13,7 @@ from pathlib import Path
 import queue
 import threading
 import time
+import webbrowser
 from tkinter import filedialog, messagebox
 from typing import Any, Callable
 
@@ -26,6 +27,7 @@ from .instance import AlreadyRunning, single_instance, focus_existing_window
 from .project_templates import create_cloud_project
 from .sync import SyncEngine, editor_running, unavailable_cloud_status
 from .workspace_data import next_available_name, reconcile_projects, latest_authors, synced_status_label
+from .update_check import APP_VERSION, check_for_update
 
 BG = "#08090b"
 CARD = "#0c0d10"
@@ -93,12 +95,21 @@ class Workspace(ctk.CTk):
         self._logo_image = _logo(36)
         self._make_widgets()
         self.after(120, self._consume)
+        self.after(400, self._check_updates_on_launch)
         previous_email = self.settings.get("email", "")
         previous_url = self.settings.get("url") or DEFAULT_SERVER
         if self.settings.get("remember") and previous_email:
             secret = load_login(previous_url, previous_email)
             if secret:
                 self.after(250, lambda: self._login(secret))
+
+    def _check_updates_on_launch(self):
+        """Check once per launch without delaying login or synchronization."""
+        def worker():
+            update = check_for_update()
+            if update and not self.stop.is_set():
+                self.events.put(("update_available", update))
+        threading.Thread(target=worker, daemon=True).start()
 
     def _text(self, parent, value, size=14, weight="normal", color=WHITE, **kwargs):
         return ctk.CTkLabel(
@@ -250,6 +261,17 @@ class Workspace(ctk.CTk):
                     self.busy = False
                     self._set_status("Operation failed: " + str(event[1]))
                     messagebox.showerror("TAUV", str(event[1]), parent=self)
+                elif event[0] == "update_available":
+                    update = event[1]
+                    if messagebox.askyesno(
+                        "TAUVSYNC — Update available",
+                        f"TAUVSYNC {update.version} is available.\n"
+                        f"Installed version: {APP_VERSION}\n\n"
+                        "Open the official GitHub release page to download?\n"
+                        "TAUVSYNC will not replace its executable or change your projects.",
+                        parent=self,
+                    ):
+                        webbrowser.open(update.release_url)
                 elif event[0] == "poll":
                     self.projects, self.authors = event[1], event[2]
                     self.connection.configure(text="Connected")
