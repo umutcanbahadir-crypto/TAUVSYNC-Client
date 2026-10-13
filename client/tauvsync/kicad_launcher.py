@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -38,6 +39,37 @@ def find_kicad10(*, environ: dict[str, str] | None = None) -> Path:
     )
 
 
+
+def find_linux_kicad10(*, environ: dict[str, str] | None = None) -> Path:
+    """Require a KiCad 10 executable; do not silently open the older system default."""
+    env = os.environ if environ is None else environ
+    override = env.get("TAUV_KICAD10_EXE")
+    candidate = Path(override).expanduser() if override else None
+    if candidate is None:
+        binary = shutil.which("kicad", path=env.get("PATH"))
+        if not binary:
+            raise FileNotFoundError(
+                "KiCad 10 not found. Install the KiCad 10 Ubuntu PPA package."
+            )
+        candidate = Path(binary)
+    if not candidate.is_file():
+        raise FileNotFoundError(f"KiCad executable does not exist: {candidate}")
+    try:
+        output = subprocess.run(
+            [str(candidate), "--version"], capture_output=True, text=True,
+            timeout=5, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise FileNotFoundError("Could not verify installed KiCad version") from error
+    version = (output.stdout + output.stderr).strip()
+    import re
+    if output.returncode != 0 or not re.search(r"(?<![\\d])10\\.\\d+(?:\\.\\d+)?", version):
+        raise RuntimeError(
+            "TAUVSYNC requires KiCad 10. Found: " + (version[:120] or "unknown version")
+        )
+    return candidate.resolve()
+
+
 def open_project_directory(path: Path, *, platform: str | None = None):
     """Open an already-existing local project directory in the OS file manager.
 
@@ -66,6 +98,10 @@ def launch_kicad_project(path: Path, *, platform: str | None = None,
         return subprocess.Popen([str(find_kicad10(environ=environ)), str(project)],
                                 close_fds=True,
                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+    if platform == "linux":
+        return subprocess.Popen(
+            [str(find_linux_kicad10(environ=environ)), str(project)], close_fds=True
+        )
     if platform == "darwin":
         return subprocess.Popen(["open", str(project)])
-    return subprocess.Popen(["xdg-open", str(project)])
+    raise RuntimeError("Unsupported KiCad host operating system")
