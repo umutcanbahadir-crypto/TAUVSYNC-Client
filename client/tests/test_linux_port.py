@@ -36,7 +36,8 @@ class LinuxCredentialTests(unittest.TestCase):
         with mock.patch.object(credentials.sys, "platform", "linux"), \
              mock.patch.object(credentials.subprocess, "run",
                  return_value=subprocess.CompletedProcess([], 0)) as execute:
-            credentials._secret_tool("store", "service", "TAUVSYNC", password="not-in-argv")
+            sample = "not-in-argv"
+            credentials._secret_tool("store", "service", "TAUVSYNC", password=sample)
             cmd = execute.call_args.args[0]
             self.assertNotIn("not-in-argv", cmd)
             self.assertEqual(execute.call_args.kwargs["input"], "not-in-argv")
