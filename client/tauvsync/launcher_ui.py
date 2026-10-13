@@ -328,15 +328,16 @@ class Workspace(ctk.CTk):
             authors = latest_authors(api, projects, {})
             # Persist settings only after successful login and server discovery.
             credential_warning = ""
-            if remember:
+            saved_remember = remember
+            if saved_remember:
                 try:
                     store_login(url, email, password)
-                except (OSError, CredentialStoreUnavailable) as error:
+                except (OSError, CredentialStoreUnavailable):
                     credential_warning = "Secure login storage unavailable; enter password next time."
-                    remember = False
+                    saved_remember = False
             else:
                 forget_login(url, email)
-            save_preferences(url, folder, email, remember)
+            save_preferences(url, folder, email, saved_remember)
             return api, user, engine, projects, authors, credential_warning
         def complete(result):
             self.api, self.user, self.engine, self.projects, self.authors, credential_warning = result
