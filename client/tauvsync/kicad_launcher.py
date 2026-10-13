@@ -63,7 +63,7 @@ def find_linux_kicad10(*, environ: dict[str, str] | None = None) -> Path:
         raise FileNotFoundError("Could not verify installed KiCad version") from error
     version = (output.stdout + output.stderr).strip()
     import re
-    if output.returncode != 0 or not re.search(r"(?<![\\d])10\\.\\d+(?:\\.\\d+)?", version):
+    if output.returncode != 0 or not re.search(r"(?<![0-9])10[.][0-9]+(?:[.][0-9]+)?", version):
         raise RuntimeError(
             "TAUVSYNC requires KiCad 10. Found: " + (version[:120] or "unknown version")
         )
