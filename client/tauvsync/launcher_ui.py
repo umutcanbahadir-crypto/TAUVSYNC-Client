@@ -24,6 +24,7 @@ from .api import PrismAPI, APIError
 from .app import DEFAULT_SERVER, LOGO_PATH, load_preferences, open_kicad, save_preferences, find_project_file
 from .credentials import load_login, store_login, forget_login, CredentialStoreUnavailable
 from .instance import AlreadyRunning, single_instance, focus_existing_window
+from .kicad_launcher import open_project_directory
 from .project_templates import create_cloud_project
 from .sync import SyncEngine, editor_running, unavailable_cloud_status
 from .workspace_data import next_available_name, reconcile_projects, latest_authors, synced_status_label
@@ -202,7 +203,7 @@ class Workspace(ctk.CTk):
 
         buttons = ctk.CTkFrame(self.main, fg_color="transparent")
         buttons.pack(fill="x", padx=18, pady=(0, 16))
-        buttons.grid_columnconfigure((0, 1), weight=1)
+        buttons.grid_columnconfigure((0, 1, 2), weight=1)
         self.new_button = ctk.CTkButton(
             buttons, text="⊕   New Project", height=53, fg_color="#121419",
             hover_color=HOVER, border_width=1, border_color=EDGE, command=self._new_project,
@@ -214,7 +215,15 @@ class Workspace(ctk.CTk):
             hover_color=HOVER, border_width=1, border_color=EDGE, command=self._open_selected,
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
         )
-        self.open_button.grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        self.open_button.grid(row=0, column=1, sticky="ew", padx=(4, 4))
+        self.open_folder_button = ctk.CTkButton(
+            buttons, text="Open Folder", height=53, fg_color="#121419",
+            hover_color=HOVER, border_width=1, border_color=EDGE,
+            command=self._open_selected_folder,
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+        )
+        self.open_folder_button.grid(row=0, column=2, sticky="ew", padx=(4, 0))
+        self.open_folder_button.configure(state="disabled")
         small = ctk.CTkFrame(self.main, fg_color="transparent")
         small.pack(fill="x", padx=18, pady=(0, 16))
         for text, action in (
@@ -480,6 +489,11 @@ class Workspace(ctk.CTk):
             self.rows.append(empty)
         self.new_button.configure(state="normal" if self.user.get("role") in ("designer", "admin") else "disabled")
         self.open_button.configure(state="normal" if self._selected() else "disabled")
+        selected = self._selected()
+        local = self.engine.local_projects() if self.engine else {}
+        self.open_folder_button.configure(
+            state="normal" if selected and selected["id"] in local else "disabled"
+        )
 
     def _selected(self) -> dict | None:
         return next((p for p in self.projects if p["id"] == self.selected_id), None)
@@ -495,6 +509,7 @@ class Workspace(ctk.CTk):
             self.project_name.configure(text="Project removed from server")
             self.project_info.configure(text="No cloud entry. Local copies are preserved.")
             self.sync_badge.pack_forget()
+            self.open_folder_button.configure(state="disabled")
             self.preview.configure(text="No preview", image=None)
             return
         pid = project["id"]
@@ -504,6 +519,9 @@ class Workspace(ctk.CTk):
             info += "  •  Author: " + str(author)
         local = self.engine.local_projects() if self.engine else {}
         info += "  •  " + ("Downloaded" if pid in local else "Cloud only")
+        self.open_folder_button.configure(
+            state="normal" if pid in local else "disabled"
+        )
         lease = project.get("edit_lock") or {}
         if lease.get("owner"):
             info += ("\nEditing lock: yours" if self.api and self.api.has_edit_lock(pid)
@@ -636,6 +654,33 @@ class Workspace(ctk.CTk):
             self._task("Creating KiCad project and first cloud revision…", work, done)
         ctk.CTkButton(dialog, text="Create project", height=42, command=create).pack(fill="x", padx=24, pady=(12, 0))
         name.focus_set()
+
+    def _open_selected_folder(self):
+        """Open a previously checked-out project without changing its lock or sync state."""
+        project = self._selected()
+        if not project or not self.engine:
+            self._set_status("Select a downloaded project first.")
+            return
+        pid = project["id"]
+        if pid not in self.engine.local_projects():
+            messagebox.showinfo(
+                "TAUV — No local copy",
+                "This project has not been downloaded yet. Use Open in KiCad "
+                "to create a managed local copy first.",
+                parent=self,
+            )
+            return
+        try:
+            folder = self.engine.folder(pid)
+            open_project_directory(folder)
+        except (OSError, ValueError) as error:
+            messagebox.showerror(
+                "TAUV — Open folder failed",
+                "Could not open the local project directory.\n\n" + str(error),
+                parent=self,
+            )
+            return
+        self._set_status("Opened local project folder: " + str(folder))
 
     def _open_selected(self):
         project = self._selected()
