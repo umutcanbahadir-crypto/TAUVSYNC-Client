@@ -34,7 +34,7 @@ jobs:
           python -m PyInstaller --noconfirm --clean --onefile --windowed --icon client/tauvsync/resources/tauv_app.ico --name TAUVSYNC --paths client --collect-all customtkinter --add-data "client/tauvsync/resources;tauvsync/resources" client/launcher.py
           python packaging/build_pcm.py
           python -m pip install jsonschema
-          python packaging/validate_pcm.py dist/TAUVSYNC-KiCad10-2.2.0.zip
+          python packaging/validate_pcm.py dist/TAUVSYNC-KiCad10-2.2.1.zip
       - name: Smoke-test the actual packaged Windows executable
         if: runner.os == 'Windows'
         shell: pwsh
@@ -80,15 +80,15 @@ jobs:
         run: |
           set -euo pipefail
           test -s release/TAUVSYNC.exe
-          test -s release/TAUVSYNC-KiCad10-2.2.0.zip
-          test -s release/TAUVSYNC-KiCad10-2.2.0.zip.sha256
+          test -s release/TAUVSYNC-KiCad10-2.2.1.zip
+          test -s release/TAUVSYNC-KiCad10-2.2.1.zip.sha256
           (cd release && sha256sum TAUVSYNC.exe > TAUVSYNC.exe.sha256)
       - name: Create direct-download GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          VERSION=v2.2.0
+          VERSION=v2.2.1
           if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $VERSION already exists; not replacing immutable versioned assets."
             exit 0
@@ -96,10 +96,10 @@ jobs:
           gh release create "$VERSION" \
             release/TAUVSYNC.exe \
             release/TAUVSYNC.exe.sha256 \
-            release/TAUVSYNC-KiCad10-2.2.0.zip \
-            release/TAUVSYNC-KiCad10-2.2.0.zip.sha256 \
+            release/TAUVSYNC-KiCad10-2.2.1.zip \
+            release/TAUVSYNC-KiCad10-2.2.1.zip.sha256 \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "TAUV Client 2.2.0 — Windows beta" \
-            --notes "TAUV Client 2.2.0: server-enforced exclusive project editing locks, 30-second lease renewal, locked-by-owner indicators, and safe release controls. Requires matching TAUVSYNC lock-enabled Oracle backend; deploy the backend before using this EXE to edit cloud projects. Other users can still view/download revisions. Local offline files cannot be made immutable. Windows 10/11 x64 with KiCad 10; no separate Python/Git/SSH. Install TAUVSYNC-KiCad10-2.2.0.zip via KiCad PCM for plugin integration. Unsigned beta; keep the app running or minimized to maintain the lock." \
+            --title "TAUV Client 2.2.1 — Windows beta" \
+            --notes "TAUV Client 2.2.1: background GitHub release checks on every launch (beta releases included), browser-based update downloads, plus server-enforced exclusive project editing locks, 30-second lease renewal, locked-by-owner indicators, and safe release controls. Requires matching TAUVSYNC lock-enabled Oracle backend; deploy the backend before using this EXE to edit cloud projects. Other users can still view/download revisions. Local offline files cannot be made immutable. Windows 10/11 x64 with KiCad 10; no separate Python/Git/SSH. Install TAUVSYNC-KiCad10-2.2.1.zip via KiCad PCM for plugin integration. Unsigned beta; keep the app running or minimized to maintain the lock." \
             --prerelease
