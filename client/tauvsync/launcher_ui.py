@@ -327,20 +327,27 @@ class Workspace(ctk.CTk):
             projects = reconcile_projects(api.projects(), engine.local_projects())
             authors = latest_authors(api, projects, {})
             # Persist settings only after successful login and server discovery.
-            save_preferences(url, folder, email, remember)
+            credential_warning = ""
             if remember:
-                store_login(url, email, password)
+                try:
+                    store_login(url, email, password)
+                except (OSError, CredentialStoreUnavailable) as error:
+                    credential_warning = "Secure login storage unavailable; enter password next time."
+                    remember = False
             else:
-                forget_login()
-            return api, user, engine, projects, authors
+                forget_login(url, email)
+            save_preferences(url, folder, email, remember)
+            return api, user, engine, projects, authors, credential_warning
         def complete(result):
-            self.api, self.user, self.engine, self.projects, self.authors = result
+            self.api, self.user, self.engine, self.projects, self.authors, credential_warning = result
             self.connected = True
             self.connection.configure(text=email + "  •  Connected")
             self.login_panel.pack_forget()
             self.main.pack(fill="both", expand=True)
             self._draw_projects()
-            self._set_status("Connected. TAUV syncs while this window is open or minimized.")
+            self._set_status(
+                credential_warning or "Connected. TAUV syncs while this window is open or minimized."
+            )
             threading.Thread(target=self._poll_loop, daemon=True).start()
         self._task("Signing in to TAUV…", work, complete)
 
