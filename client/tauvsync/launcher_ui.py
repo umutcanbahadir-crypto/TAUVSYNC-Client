@@ -88,6 +88,7 @@ class Workspace(ctk.CTk):
         self.events: queue.Queue = queue.Queue()
         self.stop = threading.Event()
         self.io_lock = threading.RLock()
+        self._lease_renew_at: dict[str, float] = {}
         self.preview_image = None
         self._logo_image = _logo(36)
         self._make_widgets()
@@ -208,7 +209,7 @@ class Workspace(ctk.CTk):
         for text, action in (
             ("Import Existing", self._import_existing), ("History", self._history),
             ("Sync now", self._sync_now), ("Pause sync", self._toggle_pause),
-            ("Sign out", self._logout),
+            ("Release lock", self._release_selected_lock), ("Sign out", self._logout),
         ):
             ctk.CTkButton(small, text=text, width=112, height=30,
                           fg_color="#15171b", hover_color=HOVER,
@@ -257,6 +258,9 @@ class Workspace(ctk.CTk):
                 elif event[0] == "poll_error":
                     self.connection.configure(text="Offline")
                     self._set_status("Connection lost; saved local work remains untouched.")
+                elif event[0] == "lock_lost":
+                    self._set_status("Editing lock lost: " + str(event[1]) +
+                                     ". Publishing paused until reopened. " + str(event[2]))
                 elif event[0] == "thumbnail":
                     key, data = event[1], event[2]
                     self.thumbnail_inflight.discard(key)
@@ -321,6 +325,15 @@ class Workspace(ctk.CTk):
             try:
                 with self.io_lock:
                     remote, authors = self._get_project_snapshot()
+                    for pid in tuple(self.api.edit_tokens):
+                        if time.monotonic() - self._lease_renew_at.get(pid, 0) >= 30:
+                            try:
+                                self.api.renew_edit_lock(pid)
+                                self._lease_renew_at[pid] = time.monotonic()
+                            except APIError as error:
+                                self.api.edit_tokens.pop(pid, None)
+                                self._lease_renew_at.pop(pid, None)
+                                self.events.put(("lock_lost", pid, str(error)))
                     if not self.paused:
                         local = self.engine.local_projects()
                         managed = [
@@ -332,7 +345,8 @@ class Workspace(ctk.CTk):
                             if project["id"] in local:
                                 self.engine.poll(
                                     project["id"], project, editors_open=editors_open,
-                                    allow_publish=self.user.get("role") in ("designer", "admin"),
+                                    allow_publish=(self.user.get("role") in ("designer", "admin")
+                                                    and self.api.has_edit_lock(project["id"])),
                                 )
                 self.events.put(("poll", remote, authors))
             except Exception:
@@ -394,6 +408,7 @@ class Workspace(ctk.CTk):
             search, show_removed, self.selected_id,
             tuple((p["id"], p.get("name"), p.get("head_revision"),
                    p.get("cloud_state"),
+                   (p.get("edit_lock") or {}).get("owner"),
                    self.authors.get(self._thumbnail_key(p), p.get("owner")))
                   for p in filtered),
         )
@@ -419,6 +434,11 @@ class Workspace(ctk.CTk):
             self.thumbnail_labels[pid] = preview
             name = self._text(row, project["name"], 15, "bold" if selected else "normal")
             name.pack(side="left", padx=(0, 12), pady=10)
+            lease = project.get("edit_lock") or {}
+            if lease.get("owner"):
+                own = bool(self.api and self.api.has_edit_lock(pid))
+                self._text(row, "Editing: you" if own else "Locked: " + str(lease["owner"]),
+                           11, color="#73d9a0" if own else "#ffbf69").pack(side="right", padx=6)
             rev = self._text(row, "r" + str(project.get("head_revision", "?")),
                              12, color=SUBTLE)
             rev.pack(side="right", padx=(6, 14))
@@ -461,6 +481,11 @@ class Workspace(ctk.CTk):
             info += "  •  Author: " + str(author)
         local = self.engine.local_projects() if self.engine else {}
         info += "  •  " + ("Downloaded" if pid in local else "Cloud only")
+        lease = project.get("edit_lock") or {}
+        if lease.get("owner"):
+            info += ("\nEditing lock: yours" if self.api and self.api.has_edit_lock(pid)
+                     else "\nLocked by " + str(lease["owner"]) +
+                          "; viewing and revision downloads remain available")
         current_status = self.engine.status.get(pid) if self.engine else None
         removed = bool(unavailable_cloud_status(project))
         badge = synced_status_label(current_status) if not removed else None
@@ -525,7 +550,8 @@ class Workspace(ctk.CTk):
                 if project["id"] in local:
                     self.engine.poll(
                         project["id"], project, editors_open=editors_open,
-                        allow_publish=self.user.get("role") in ("designer", "admin"),
+                        allow_publish=(self.user.get("role") in ("designer", "admin")
+                                                    and self.api.has_edit_lock(project["id"])),
                     )
             return projects, authors
         def completed(snapshot):
