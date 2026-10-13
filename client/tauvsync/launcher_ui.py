@@ -209,7 +209,8 @@ class Workspace(ctk.CTk):
         for text, action in (
             ("Import Existing", self._import_existing), ("History", self._history),
             ("Sync now", self._sync_now), ("Pause sync", self._toggle_pause),
-            ("Release lock", self._release_selected_lock), ("Sign out", self._logout),
+            ("Release lock", self._release_selected_lock), ("Admin unlock", self._admin_force_unlock),
+            ("Sign out", self._logout),
         ):
             ctk.CTkButton(small, text=text, width=112, height=30,
                           fg_color="#15171b", hover_color=HOVER,
@@ -699,6 +700,31 @@ class Workspace(ctk.CTk):
             self._refresh()
 
         self._task("Releasing editing lock…", work, done)
+
+    def _admin_force_unlock(self):
+        project = self._selected()
+        if not project or not self.api:
+            self._set_status("Select a project first.")
+            return
+        if self.user.get("role") != "admin":
+            messagebox.showwarning("TAUV", "Only an administrator can force-unlock.", parent=self)
+            return
+        lock = project.get("edit_lock")
+        if not lock:
+            self._set_status("This project is not currently locked.")
+            return
+        if not messagebox.askyesno(
+            "Administrator override",
+            "Force-release the editing lock held by " + str(lock["owner"]) +
+            "? Their KiCad editor may still be open. Their token will be invalidated; "
+            "unsaved local changes must be preserved manually. Continue?",
+            parent=self,
+        ):
+            return
+        self._task("Administratively releasing lock…",
+                   lambda: self.api.force_release_edit_lock(project["id"]),
+                   lambda _: (self._set_status("Editing lock force-released."),
+                              self._refresh()))
 
     def _import_existing(self):
         if not self.engine or not self.api:
