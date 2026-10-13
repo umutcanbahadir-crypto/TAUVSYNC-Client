@@ -5,21 +5,25 @@ Windows, on GitHub's `ubuntu-22.04` x86_64 runner. It does not run the Windows
 EXE under Wine. It is a beta and requires a graphical GNOME/X11/XWayland
 desktop session; headless/SSH servers are not supported as desktop clients.
 
-## Recommended: Debian installer
+## One-click download and graphical installation (recommended)
 
-Download `tauvsync_2.2.1_amd64.deb` and the matching `.sha256` from the
-[v2.2.1 release](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/tag/v2.2.1).
-Verify the checksum in the directory containing both downloads:
+### [⬇ Download TAUVSYNC for Ubuntu 22.04 — .deb](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.2.1/tauvsync_2.2.1_amd64.deb)
+
+1. Click **Download TAUVSYNC for Ubuntu 22.04** above. Your browser downloads `tauvsync_2.2.1_amd64.deb`; you do not need to clone this repository.
+2. Open **Files → Downloads** in Ubuntu and double-click the downloaded `.deb`. If necessary, right-click → **Open With → Software Install**.
+3. Choose **Install**, authenticate with your Ubuntu password, then find **TAUVSYNC** in **Show Applications**.
+
+This installs the app and desktop launcher, with no command-line steps. It does not install KiCad itself; **KiCad 10 is required to edit projects**.
+
+If your desktop has no graphical package installer, use the terminal fallback below. Run it **from the folder holding the downloaded file**, or give the complete file path.
 
 ```bash
-sha256sum -c tauvsync_2.2.1_amd64.deb.sha256
+cd ~/Downloads
 sudo apt install ./tauvsync_2.2.1_amd64.deb
 tauvsync
 ```
 
-The package installs `/usr/bin/tauvsync`, its desktop-menu launcher, and the
-TAUV icon. No standalone Python installation is needed. The app opens without
-KiCad for project browsing; **KiCad 10 is required to edit projects**.
+For optional download integrity verification, also get the [SHA-256 checksum file](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.2.1/tauvsync_2.2.1_amd64.deb.sha256) and, from the Downloads directory, run `sha256sum -c tauvsync_2.2.1_amd64.deb.sha256`. Both files must exist in the same directory. The installer does not touch existing local TAUVSYNC projects.
 
 ## Install KiCad 10
 
