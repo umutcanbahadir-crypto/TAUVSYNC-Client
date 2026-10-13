@@ -823,6 +823,12 @@ class Workspace(ctk.CTk):
         self.destroy()  # restart the app to sign into a different account
 
     def _on_close(self):
+        if self.api and self.api.edit_tokens and editor_running():
+            messagebox.showwarning(
+                "TAUV — Editing lock active",
+                "Close all KiCad editors before quitting TAUV. Minimize TAUV "
+                "to keep your exclusive editing locks alive.", parent=self)
+            return
         if self.connected and not messagebox.askyesno(
             "Exit TAUV", "Exit TAUV and release editing locks?\n"
             "Close KiCad first; minimize TAUV to keep locks active.",
