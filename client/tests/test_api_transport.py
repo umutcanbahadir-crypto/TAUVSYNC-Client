@@ -33,6 +33,7 @@ class Handler(BaseHTTPRequestHandler):
             self.server.seen_cookie = "prism_session=test-only" in self.headers.get("Cookie", "")
             assert self.headers.get("Content-Type", "").startswith("multipart/form-data; boundary=tauvsync-")
             assert b'name="base_revision"\r\n\r\n4\r\n' in body
+            assert b'name="edit_token"\r\n\r\n' in body
             assert b'filename="project.zip"' in body
             assert b"project-binary-content" in body
             self.server.seen_upload = True
@@ -74,6 +75,7 @@ class ApiTransportTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 archive = Path(directory) / "test.zip"
                 archive.write_bytes(b"project-binary-content")
+                api.edit_tokens["a" * 32] = "test-lease-token-" + "z" * 32
                 outcome = api.publish("a" * 32, 4, archive)
                 self.assertEqual(outcome, {"number": 5, "status": "current"})
                 self.assertTrue(server.seen_upload)

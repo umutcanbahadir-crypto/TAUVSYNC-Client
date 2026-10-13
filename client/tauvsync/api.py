@@ -35,6 +35,8 @@ class PrismAPI:
             raise ValueError("Invalid server URL")
         self.base = base_url.rstrip("/")
         self.timeout = timeout
+        # Never persist lease secrets; expired sessions must reacquire explicitly.
+        self.edit_tokens: dict[str, str] = {}
         self.cookies = http.cookiejar.CookieJar()
         self.opener = urllib.request.build_opener(
             urllib.request.HTTPCookieProcessor(self.cookies),
@@ -142,6 +144,65 @@ class PrismAPI:
                 return None
             raise
 
+    def edit_lock(self, project_id: str) -> dict | None:
+        return self._json(f"/api/tauvsync/projects/{_id(project_id)}/edit-lock")["edit_lock"]
+
+    def has_edit_lock(self, project_id: str) -> bool:
+        return project_id in self.edit_tokens
+
+    def acquire_edit_lock(self, project_id: str) -> dict:
+        if self.has_edit_lock(project_id):
+            return self.renew_edit_lock(project_id)
+        lease = self._json(
+            f"/api/tauvsync/projects/{_id(project_id)}/edit-lock",
+            method="POST", payload={},
+        )
+        token = lease.get("token")
+        if not isinstance(token, str) or len(token) < 32:
+            raise APIError("Server did not return a valid editing lock token")
+        self.edit_tokens[project_id] = token
+        return {"owner": lease["owner"], "expires_at": lease["expires_at"]}
+
+    def renew_edit_lock(self, project_id: str) -> dict:
+        token = self.edit_tokens.get(project_id)
+        if not token:
+            raise APIError("Open this project to acquire its exclusive editing lock")
+        try:
+            return self._json(
+                f"/api/tauvsync/projects/{_id(project_id)}/edit-lock/renew",
+                method="POST", payload={"token": token},
+            )
+        except APIError as error:
+            if error.status in (404, 409, 423):
+                self.edit_tokens.pop(project_id, None)
+            raise
+
+    def release_edit_lock(self, project_id: str) -> dict:
+        token = self.edit_tokens.pop(project_id, None)
+        if not token:
+            return {"released": False}
+        return self._json(
+            f"/api/tauvsync/projects/{_id(project_id)}/edit-lock",
+            method="DELETE", payload={"token": token},
+        )
+
+    def release_all_edit_locks(self):
+        # Best effort only. Server TTL recovers from connection loss and crashes.
+        for pid in tuple(self.edit_tokens):
+            try:
+                self.release_edit_lock(pid)
+            except APIError:
+                pass
+
+    def force_release_edit_lock(self, project_id: str) -> dict:
+        """Admin-only server endpoint; never infer administrator privileges here."""
+        result = self._json(
+            f"/api/tauvsync/projects/{_id(project_id)}/edit-lock/force",
+            method="DELETE", payload={},
+        )
+        self.edit_tokens.pop(project_id, None)
+        return result
+
     def revisions(self, project_id: str) -> list[dict]:
         return self._json(f"/api/tauvsync/projects/{_id(project_id)}/revisions")
 
@@ -212,11 +273,17 @@ class PrismAPI:
     def publish(self, project_id: str, base_revision: int, archive: Path) -> dict:
         """Stream multipart body rather than loading large ZIPs into RAM."""
         archive = Path(archive)
+        token = self.edit_tokens.get(project_id)
+        if not token:
+            raise APIError("Project is not locked for editing on this computer", status=423)
         boundary = "tauvsync-" + uuid.uuid4().hex
         header = (
             f"--{boundary}\r\n"
             'Content-Disposition: form-data; name="base_revision"\r\n\r\n'
             f"{int(base_revision)}\r\n"
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="edit_token"\r\n\r\n'
+            + token + "\r\n"
             f"--{boundary}\r\n"
             'Content-Disposition: form-data; name="archive"; filename="project.zip"\r\n'
             "Content-Type: application/zip\r\n\r\n"
@@ -247,7 +314,7 @@ class PrismAPI:
         """
         return self._json(
             f"/api/tauvsync/projects/{_id(project_id)}/revisions/{int(revision)}/restore",
-            method="POST", payload={},
+            method="POST", payload={"edit_token": self.edit_tokens.get(project_id) or ""},
         )
 
 

@@ -45,12 +45,13 @@ class TAUVClientUpgradeTests(unittest.TestCase):
     def test_restore_uses_existing_versioned_backend_route(self):
         api = PrismAPI("https://team.example.test")
         project_id = "a" * 32
+        api.edit_tokens[project_id] = "test-lease-token-12345678901234567890123456789"
         with mock.patch.object(api, "_json", return_value={"number": 4}) as call:
             result = api.restore(project_id, 2)
         self.assertEqual(result["number"], 4)
         call.assert_called_once_with(
             f"/api/tauvsync/projects/{project_id}/revisions/2/restore",
-            method="POST", payload={})
+            method="POST", payload={"edit_token": api.edit_tokens[project_id]})
 
 
 if __name__ == "__main__":

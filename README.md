@@ -3,15 +3,15 @@
 **A standalone Windows project manager and KiCad 10 synchronization extension.**
 Browse shared projects, preview rendered PCB images, create new KiCad designs, download existing projects, and open them in KiCad 10. Uploading an existing project is optional.
 
-> **Version 2.1.1 — Windows 10/11 x64 beta.** No separate Python, Git, or SSH installation is required for users. The executable is not code-signed; Windows SmartScreen may display a warning.
+> **Version 2.2.0 — Windows 10/11 x64 beta.** No separate Python, Git, or SSH installation is required for users. The executable is not code-signed; Windows SmartScreen may display a warning.
 
 ## Download for Windows
 
-### [Download TAUVSYNC.exe directly](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.1.1/TAUVSYNC.exe)
+### [Download TAUVSYNC.exe directly](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.2.0/TAUVSYNC.exe)
 
 The above link downloads the EXE directly once the versioned GitHub Release has been published. It does not require opening a GitHub Actions artifact.
 
-**[All downloads and release notes](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/tag/v2.1.1)** | [KiCad 10 plugin ZIP](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.1.1/TAUVSYNC-KiCad10-2.1.1.zip) | [Windows EXE checksum](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.1.1/TAUVSYNC.exe.sha256)
+**[All downloads and release notes](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/tag/v2.2.0)** | [KiCad 10 plugin ZIP](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.2.0/TAUVSYNC-KiCad10-2.2.0.zip) | [Windows EXE checksum](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.2.0/TAUVSYNC.exe.sha256)
 
 The standalone EXE and KiCad plugin are **two ways to open the same TAUV workspace**. Install either or both.
 
@@ -26,7 +26,7 @@ The standalone EXE and KiCad plugin are **two ways to open the same TAUV workspa
 ### Optional KiCad 10 toolbar extension
 
 1. Install KiCad **10.0.x**.
-2. Download `TAUVSYNC-KiCad10-2.1.1.zip` directly from the link above. **Do not extract this ZIP.**
+2. Download `TAUVSYNC-KiCad10-2.2.0.zip` directly from the link above. **Do not extract this ZIP.**
 3. In KiCad, open **Plugin and Content Manager → Install from File** and select the downloaded ZIP.
 4. Enable KiCad's IPC API under PCB Editor **Preferences → Plugins**, if disabled, and restart PCB Editor.
 5. Open **PCB Editor → Tools → External Plugins → TAUV Team Projects**, or click the TAUV toolbar icon.
@@ -45,6 +45,10 @@ The standalone EXE and KiCad plugin are **two ways to open the same TAUV workspa
 - **Revision history:** Download earlier snapshots and, with the necessary permissions, explicitly restore a historical revision as a new latest revision.
 - **Project removal:** Refreshes the server list; removed projects stop synchronizing and existing local files are preserved.
 - **Account security:** HTTPS sign-in with the existing server. Optional remembered login uses Windows DPAPI.
+
+**Exclusive editing locks (2.2.0):** Opening a shared project as a Designer/Admin acquires a server-side project lock. The current owner is shown to teammates; other users can inspect thumbnails or download historical snapshots but cannot open the shared working copy or publish. TAUV renews the 180-second lease every 30 seconds while running. Close all KiCad editors, finish synchronization and choose **Release lock** so teammates can edit. An Admin can force-release abandoned locks through the authenticated API. If TAUV crashes, the lease expires automatically. Local files cannot be technically prevented from being edited offline.
+
+**Required server upgrade:** v2.2.0 needs the corresponding TAUVSYNC backend with `/api/tauvsync/projects/{id}/edit-lock` endpoints. **Deploy the new backend before using this client for shared edits.** Older clients will be refused revision uploads after enforcement is enabled. The Windows executable does not deploy or update Oracle.
 
 **Current limitations:** Background sync stops when TAUV exits (minimizing is fine); conflict resolution is manual; no integrated full schematic/PCB renderer or resumable transfer support. Test new-project templates on a disposable design before using them for production. This is a Windows x64 team-testing release, not a signed installer.
 
