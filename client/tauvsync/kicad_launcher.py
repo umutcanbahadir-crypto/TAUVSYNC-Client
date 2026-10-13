@@ -38,6 +38,24 @@ def find_kicad10(*, environ: dict[str, str] | None = None) -> Path:
     )
 
 
+def open_project_directory(path: Path, *, platform: str | None = None):
+    """Open an already-existing local project directory in the OS file manager.
+
+    This never downloads, checks out, or modifies project files.
+    The caller should obtain the path from SyncEngine.folder(), which validates
+    that a managed project remains inside the configured workspace.
+    """
+    directory = Path(path).expanduser().resolve(strict=True)
+    if not directory.is_dir():
+        raise NotADirectoryError(f"Not a project directory: {directory}")
+    platform = platform or sys.platform
+    if platform == "win32":
+        return os.startfile(str(directory))
+    if platform == "darwin":
+        return subprocess.Popen(["open", str(directory)])
+    return subprocess.Popen(["xdg-open", str(directory)])
+
+
 def launch_kicad_project(path: Path, *, platform: str | None = None,
                          environ: dict[str, str] | None = None):
     project = Path(path).expanduser().resolve()
