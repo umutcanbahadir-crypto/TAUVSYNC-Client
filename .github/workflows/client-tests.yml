@@ -89,8 +89,15 @@ jobs:
         timeout-minutes: 3
         run: |
           set -euo pipefail
-          ./dist/TAUVSYNC --self-test
-          xvfb-run -a ./dist/TAUVSYNC --gui-self-test
+          ./dist/TAUVSYNC --self-test || {
+            cat "$HOME/.local/state/tauvsync/launcher.log" || true
+            exit 1
+          }
+          xvfb-run -a ./dist/TAUVSYNC --gui-self-test || {
+            cat "$HOME/.local/state/tauvsync/launcher.log" || true
+            exit 1
+          }
+          cat "$HOME/.local/state/tauvsync/launcher.log"
           grep -q "SELF-TEST OK" "$HOME/.local/state/tauvsync/launcher.log"
           grep -q "GUI-SELF-TEST OK" "$HOME/.local/state/tauvsync/launcher.log"
       - name: Package Ubuntu deb and portable archive
