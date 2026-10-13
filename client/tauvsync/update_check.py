@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import re
+import sys
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -39,8 +40,10 @@ def version_key(version: str) -> tuple[int, int, int, int, int] | None:
     return (int(major), int(minor), int(patch), rank, int(sequence or 0))
 
 
-def select_update(releases: object, installed_version: str = APP_VERSION) -> AvailableUpdate | None:
-    """Select the newest newer published release with a Windows EXE asset."""
+def select_update(releases: object, installed_version: str = APP_VERSION,
+                  *, platform: str | None = None) -> AvailableUpdate | None:
+    """Select a newer release with a downloadable asset for this operating system."""
+    platform = sys.platform if platform is None else platform
     installed = version_key(installed_version)
     if installed is None or not isinstance(releases, list):
         return None
@@ -55,10 +58,21 @@ def select_update(releases: object, installed_version: str = APP_VERSION) -> Ava
         if candidate is None or candidate <= installed:
             continue
         assets = release.get("assets")
-        if not isinstance(assets, list) or not any(
-            isinstance(asset, dict) and asset.get("name") == "TAUVSYNC.exe"
-            for asset in assets
-        ):
+        def compatible_asset(asset: object) -> bool:
+            if not isinstance(asset, dict):
+                return False
+            name = asset.get("name")
+            if not isinstance(name, str):
+                return False
+            if platform == "win32":
+                return name == "TAUVSYNC.exe"
+            if platform == "linux":
+                return (name.startswith("tauvsync_") and name.endswith("_amd64.deb")) or (
+                    name.startswith("TAUVSYNC-linux-x86_64-") and name.endswith(".tar.gz")
+                )
+            return False
+
+        if not isinstance(assets, list) or not any(compatible_asset(asset) for asset in assets):
             continue
         if best is None or candidate > best:
             best = candidate
