@@ -1,6 +1,7 @@
 """Headless TAUV logo and dedicated-sync-badge regression tests."""
 from pathlib import Path
 import struct
+import zlib
 import unittest
 
 from client.tauvsync.workspace_data import synced_status_label
@@ -23,6 +24,24 @@ class BrandTests(unittest.TestCase):
                 self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
                 self.assertEqual(struct.unpack(">II", data[16:24]), (size, size))
                 self.assertEqual(data[25], 6)  # PNG RGBA
+                position, compressed = 8, []
+                found_end = False
+                while position < len(data):
+                    chunk_length = struct.unpack(">I", data[position:position + 4])[0]
+                    tag = data[position + 4:position + 8]
+                    payload = data[position + 8:position + 8 + chunk_length]
+                    checksum = struct.unpack(">I", data[position + 8 + chunk_length:position + 12 + chunk_length])[0]
+                    self.assertEqual(zlib.crc32(tag + payload), checksum)
+                    if tag == b"IDAT":
+                        compressed.append(payload)
+                    if tag == b"IEND":
+                        found_end = True
+                    position += 12 + chunk_length
+                self.assertTrue(found_end)
+                self.assertEqual(position, len(data))
+                # Every RGBA 8-bit PNG scanline contains a filter byte and 4*size pixels.
+                decoded = zlib.decompress(b"".join(compressed))
+                self.assertEqual(len(decoded), size * (1 + 4 * size))
 
 
 if __name__ == "__main__":
