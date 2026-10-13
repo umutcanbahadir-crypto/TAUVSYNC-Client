@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from client.tauvsync.kicad_launcher import find_kicad10, launch_kicad_project
+from client.tauvsync.kicad_launcher import find_kicad10, launch_kicad_project, open_project_directory
 
 
 class KiCad10LauncherTests(unittest.TestCase):
@@ -39,6 +39,40 @@ class KiCad10LauncherTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaisesRegex(FileNotFoundError, "KiCad 10"):
                 find_kicad10(environ={"ProgramFiles": folder})
+
+
+class ProjectDirectoryLauncherTests(unittest.TestCase):
+    def test_windows_explorer_opens_existing_directory_without_shell(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            local = Path(workspace) / "PCB Görüntüleme (1)"
+            local.mkdir()
+            with mock.patch(
+                "client.tauvsync.kicad_launcher.os.startfile", create=True
+            ) as startfile, mock.patch(
+                "client.tauvsync.kicad_launcher.subprocess.Popen"
+            ) as popen:
+                open_project_directory(local, platform="win32")
+            startfile.assert_called_once_with(str(local.resolve()))
+            popen.assert_not_called()
+
+    def test_nonexistent_or_regular_file_is_not_opened(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            missing = Path(workspace) / "not-downloaded"
+            with self.assertRaises(FileNotFoundError):
+                open_project_directory(missing, platform="win32")
+            ordinary_file = Path(workspace) / "example.kicad_pro"
+            ordinary_file.write_text("{}")
+            with self.assertRaises(NotADirectoryError):
+                open_project_directory(ordinary_file, platform="win32")
+
+    def test_non_windows_opens_directory_using_native_file_manager(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            folder = Path(workspace)
+            with mock.patch("client.tauvsync.kicad_launcher.subprocess.Popen") as popen:
+                open_project_directory(folder, platform="linux")
+                popen.assert_called_with(["xdg-open", str(folder.resolve())])
+                open_project_directory(folder, platform="darwin")
+                popen.assert_called_with(["open", str(folder.resolve())])
 
 
 if __name__ == "__main__":

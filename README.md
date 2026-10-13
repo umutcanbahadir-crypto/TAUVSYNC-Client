@@ -1,19 +1,30 @@
 # TAUVSYNC Client — TAUV Team Workspace
 
-**A standalone Windows project manager and KiCad 10 synchronization extension.**
+**A standalone Windows/Linux project manager and KiCad 10 synchronization extension.**
 Browse shared projects, preview rendered PCB images, create new KiCad designs, download existing projects, and open them in KiCad 10. Uploading an existing project is optional.
 
-> **Version 2.2.0 — Windows 10/11 x64 beta.** No separate Python, Git, or SSH installation is required for users. The executable is not code-signed; Windows SmartScreen may display a warning.
+> **Version 2.2.1 — Windows 10/11 x64 and Ubuntu 22.04 amd64 beta.** No separate Python, Git, or SSH installation is required for users. Windows executable is not code-signed; Windows SmartScreen may display a warning.
 
 ## Download for Windows
 
-### [Download TAUVSYNC.exe directly](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.2.0/TAUVSYNC.exe)
+### [Download TAUVSYNC.exe directly](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.2.1/TAUVSYNC.exe)
 
 The above link downloads the EXE directly once the versioned GitHub Release has been published. It does not require opening a GitHub Actions artifact.
 
-**[All downloads and release notes](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/tag/v2.2.0)** | [KiCad 10 plugin ZIP](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.2.0/TAUVSYNC-KiCad10-2.2.0.zip) | [Windows EXE checksum](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.2.0/TAUVSYNC.exe.sha256)
+**[All downloads and release notes](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/tag/v2.2.1)** | [KiCad 10 plugin ZIP](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.2.1/TAUVSYNC-KiCad10-2.2.1.zip) | [Windows EXE checksum](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.2.1/TAUVSYNC.exe.sha256)
 
-The standalone EXE and KiCad plugin are **two ways to open the same TAUV workspace**. Install either or both.
+The standalone EXE and KiCad plugin are **two ways to open the same TAUV workspace**. Install either or both on Windows.
+
+## Ubuntu 22.04 Linux (x86_64)
+
+The native Linux build is produced on **ubuntu-22.04** and shipped in the **same v2.2.1 GitHub release**:
+
+- [Ubuntu 22.04 .deb installer](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.2.1/tauvsync_2.2.1_amd64.deb)
+- [Portable Linux tar.gz](https://github.com/umutcanbahadir-crypto/TAUVSYNC-Client/releases/download/v2.2.1/TAUVSYNC-linux-x86_64-2.2.1.tar.gz)
+- [Linux installation and KiCad 10 instructions](docs/LINUX-UBUNTU22.04.md)
+
+Install the Debian package with `sudo apt install ./tauvsync_2.2.1_amd64.deb` and start `tauvsync` or use its desktop launcher. The same login, revision history, lock, sync, Open Folder and update-check workflows are available. Linux credentials use Secret Service/GNOME Keyring, not Windows DPAPI. **Install KiCad 10 using its official PPA**; older default KiCad packages are not supported. The Linux package is a standalone app; the KiCad PCM ZIP remains Windows-only. Release links become valid only after v2.2.1 is published.
+
 
 ### Standalone launcher (recommended)
 
@@ -22,11 +33,12 @@ The standalone EXE and KiCad plugin are **two ways to open the same TAUV workspa
 3. Run `TAUVSYNC.exe`, sign in using **your own authorized TAUVSYNC team account**, and choose a local workspace directory.
 4. Browse shared projects or select **New Project** to create the first cloud revision without using KiCad first.
 5. Use **Open in KiCad** to download the managed copy, if necessary, and open it specifically in **KiCad 10**. Keep TAUV running or minimized while editing for synchronization.
+6. Once downloaded, select a project and click **Open Folder** to view its managed checkout in Windows Explorer. Cloud-only projects have this action disabled; locally retained copies of removed projects can still be opened. This does not acquire a lock or synchronize edits.
 
 ### Optional KiCad 10 toolbar extension
 
 1. Install KiCad **10.0.x**.
-2. Download `TAUVSYNC-KiCad10-2.2.0.zip` directly from the link above. **Do not extract this ZIP.**
+2. Download `TAUVSYNC-KiCad10-2.2.1.zip` directly from the link above. **Do not extract this ZIP.**
 3. In KiCad, open **Plugin and Content Manager → Install from File** and select the downloaded ZIP.
 4. Enable KiCad's IPC API under PCB Editor **Preferences → Plugins**, if disabled, and restart PCB Editor.
 5. Open **PCB Editor → Tools → External Plugins → TAUV Team Projects**, or click the TAUV toolbar icon.
@@ -35,22 +47,24 @@ The standalone EXE and KiCad plugin are **two ways to open the same TAUV workspa
 
 ## Features
 
+- **Automatic update checks:** Every launch checks the public GitHub Releases feed in the background, including beta versions. If a newer Windows EXE is published, TAUV offers a link to the official release. It never silently installs or replaces files, and startup/login/sync continue when GitHub is unavailable.
 - **Create Projects:** TAUV creates new schematic, PCB or combined KiCad projects, uploads cloud revision r1 and downloads a synchronized managed checkout.
 - **Shared workspace:** Browse and search project names, revisions and the latest revision author.
 - **PCB previews:** Reuses cached PCB thumbnails already rendered by the Prism server; new/blank projects may have no thumbnail yet.
 - **Open in KiCad 10:** Uses KiCad 10's executable instead of Windows' default `.kicad_pro` association, which may point to KiCad 9.
+- **Open Folder:** Opens the selected project's existing managed local directory in Windows Explorer without creating, downloading, modifying, or syncing project data. Available only after a local checkout exists.
 - **Import Existing:** Copies an existing local KiCad project into a separate managed checkout; original files remain unchanged.
 - **Duplicate naming:** New or imported projects get names such as `Buck (1)` or `Buck (2)` when needed. Histories are not merged automatically.
 - **Automatic synchronization:** Detects saved changes and remote revisions while TAUV is running, preserving divergent/local edits rather than overwriting them silently.
 - **Revision history:** Download earlier snapshots and, with the necessary permissions, explicitly restore a historical revision as a new latest revision.
 - **Project removal:** Refreshes the server list; removed projects stop synchronizing and existing local files are preserved.
-- **Account security:** HTTPS sign-in with the existing server. Optional remembered login uses Windows DPAPI.
+- **Account security:** HTTPS sign-in with the existing server. Optional remembered login uses Windows DPAPI or Linux Secret Service; passwords are never saved as plaintext in preferences.
 
-**Exclusive editing locks (2.2.0):** Opening a shared project as a Designer/Admin acquires a server-side project lock. The current owner is shown to teammates; other users can inspect thumbnails or download historical snapshots but cannot open the shared working copy or publish. TAUV renews the 180-second lease every 30 seconds while running. Close all KiCad editors, finish synchronization and choose **Release lock** so teammates can edit. An Admin can force-release abandoned locks through the authenticated API. If TAUV crashes, the lease expires automatically. Local files cannot be technically prevented from being edited offline.
+**Exclusive editing locks (2.2.1):** Opening a shared project as a Designer/Admin acquires a server-side project lock. The current owner is shown to teammates; other users can inspect thumbnails or download historical snapshots but cannot open the shared working copy or publish. TAUV renews the 180-second lease every 30 seconds while running. Close all KiCad editors, finish synchronization and choose **Release lock** so teammates can edit. An Admin can force-release abandoned locks through the authenticated API. If TAUV crashes, the lease expires automatically. Local files cannot be technically prevented from being edited offline.
 
-**Required server upgrade:** v2.2.0 needs the corresponding TAUVSYNC backend with `/api/tauvsync/projects/{id}/edit-lock` endpoints. **Deploy the new backend before using this client for shared edits.** Older clients will be refused revision uploads after enforcement is enabled. The Windows executable does not deploy or update Oracle.
+**Required server upgrade:** v2.2.1 needs the corresponding TAUVSYNC backend with `/api/tauvsync/projects/{id}/edit-lock` endpoints. **Deploy the new backend before using this client for shared edits.** Older clients will be refused revision uploads after enforcement is enabled. The Windows executable does not deploy or update Oracle.
 
-**Current limitations:** Background sync stops when TAUV exits (minimizing is fine); conflict resolution is manual; no integrated full schematic/PCB renderer or resumable transfer support. Test new-project templates on a disposable design before using them for production. This is a Windows x64 team-testing release, not a signed installer.
+**Current limitations:** Background sync stops when TAUV exits (minimizing is fine); conflict resolution is manual; no integrated full schematic/PCB renderer or resumable transfer support. Test new-project templates on a disposable design before using them for production. These Windows/Linux packages are beta builds, not signed installers.
 
 ## Connection and privacy
 
@@ -94,7 +108,7 @@ py -3.12 -m PyInstaller --noconfirm --clean --onefile --windowed --icon client/t
 py -3.12 packaging/build_pcm.py
 ```
 
-For a new release, update the version in `packaging/build_pcm.py`, the PCM tests, and the pinned version references in the GitHub Actions release workflow and README; then run all checks before publishing. Existing release assets are not overwritten.
+For a new release, update the version in `client/tauvsync/update_check.py` and `packaging/build_pcm.py`, the PCM tests, and the pinned version references in the GitHub Actions release workflow and README; then run all checks before publishing. Existing release assets are not overwritten.
 
 **Security:** Never commit `.env`, passwords, session cookies, project archives, account data or SSH keys.
 

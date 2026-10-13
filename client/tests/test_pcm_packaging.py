@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from zipfile import ZipFile
 
+from client.tauvsync.update_check import APP_VERSION
+
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("tauv_pcm_builder", ROOT / "packaging" / "build_pcm.py")
@@ -43,7 +45,7 @@ class IPCPackageTests(unittest.TestCase):
                 meta = json.loads(z.read("metadata.json"))
                 self.assertEqual(meta["versions"][0]["runtime"], "ipc")
                 self.assertEqual(meta["versions"][0]["kicad_version"], "10.0")
-                self.assertEqual(meta["versions"][0]["version"], "2.2.0")
+                self.assertEqual(meta["versions"][0]["version"], APP_VERSION)
                 self.assertEqual(meta["versions"][0]["status"], "testing")
                 self.assertEqual(meta["versions"][0]["platforms"], ["windows"])
                 self.assertTrue(meta["author"]["contact"]["web"].startswith("https://"))

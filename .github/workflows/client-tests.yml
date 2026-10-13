@@ -34,7 +34,7 @@ jobs:
           python -m PyInstaller --noconfirm --clean --onefile --windowed --icon client/tauvsync/resources/tauv_app.ico --name TAUVSYNC --paths client --collect-all customtkinter --add-data "client/tauvsync/resources;tauvsync/resources" client/launcher.py
           python packaging/build_pcm.py
           python -m pip install jsonschema
-          python packaging/validate_pcm.py dist/TAUVSYNC-KiCad10-2.2.0.zip
+          python packaging/validate_pcm.py dist/TAUVSYNC-KiCad10-2.2.1.zip
       - name: Smoke-test the actual packaged Windows executable
         if: runner.os == 'Windows'
         shell: pwsh
@@ -62,12 +62,71 @@ jobs:
             dist/TAUVSYNC-KiCad10-*.zip.sha256
           if-no-files-found: error
 
+  linux:
+    name: Build Ubuntu 22.04 amd64 installer
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Ubuntu desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk xvfb xauth libsecret-tools xdg-utils libx11-6 libxext6 libxft2
+      - name: Build native Linux binary on glibc 2.35
+        shell: bash
+        run: |
+          set -euo pipefail
+          ldd --version | head -1
+          python -m pip install pyinstaller kicad-python==0.8.0 customtkinter==5.2.2 pillow==11.3.0
+          python -m unittest discover -s client/tests -v
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name TAUVSYNC --paths client --collect-all customtkinter --hidden-import PIL._tkinter_finder --hidden-import kipy --add-data "client/tauvsync/resources:tauvsync/resources" client/launcher.py
+          file dist/TAUVSYNC
+          test -x dist/TAUVSYNC
+      - name: Validate frozen Linux launcher and real Tk window
+        shell: bash
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          ./dist/TAUVSYNC --self-test || {
+            cat "$HOME/.local/state/tauvsync/launcher.log" || true
+            exit 1
+          }
+          xvfb-run -a ./dist/TAUVSYNC --gui-self-test || {
+            cat "$HOME/.local/state/tauvsync/launcher.log" || true
+            exit 1
+          }
+          cat "$HOME/.local/state/tauvsync/launcher.log"
+          grep -q "SELF-TEST OK" "$HOME/.local/state/tauvsync/launcher.log"
+          grep -q "GUI-SELF-TEST OK" "$HOME/.local/state/tauvsync/launcher.log"
+      - name: Package Ubuntu deb and portable archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python packaging/build_linux.py
+          dpkg-deb --info dist/tauvsync_2.2.1_amd64.deb
+          dpkg-deb --contents dist/tauvsync_2.2.1_amd64.deb | grep /opt/tauvsync/TAUVSYNC
+          test -s dist/TAUVSYNC-linux-x86_64-2.2.1.tar.gz
+          (cd dist && sha256sum -c tauvsync_2.2.1_amd64.deb.sha256)
+          (cd dist && sha256sum -c TAUVSYNC-linux-x86_64-2.2.1.tar.gz.sha256)
+      - name: Upload Linux release candidates
+        uses: actions/upload-artifact@v4
+        with:
+          name: TAUVSYNC-Ubuntu22.04-Linux-testing
+          path: |
+            dist/tauvsync_2.2.1_amd64.deb
+            dist/tauvsync_2.2.1_amd64.deb.sha256
+            dist/TAUVSYNC-linux-x86_64-2.2.1.tar.gz
+            dist/TAUVSYNC-linux-x86_64-2.2.1.tar.gz.sha256
+          if-no-files-found: error
+
   release:
-    name: Publish direct Windows EXE download
+    name: Publish Windows and Ubuntu 22.04 downloads
     # Only the tested main-branch build is published; PRs and feature branches
     # never create public release assets.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: tests
+    needs: [tests, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -76,19 +135,27 @@ jobs:
         with:
           name: TAUVSYNC-KiCad10-Windows-testing
           path: release
+      - uses: actions/download-artifact@v4
+        with:
+          name: TAUVSYNC-Ubuntu22.04-Linux-testing
+          path: release
       - name: Verify assets and create EXE checksum
         run: |
           set -euo pipefail
           test -s release/TAUVSYNC.exe
-          test -s release/TAUVSYNC-KiCad10-2.2.0.zip
-          test -s release/TAUVSYNC-KiCad10-2.2.0.zip.sha256
+          test -s release/TAUVSYNC-KiCad10-2.2.1.zip
+          test -s release/TAUVSYNC-KiCad10-2.2.1.zip.sha256
+          test -s release/tauvsync_2.2.1_amd64.deb
+          test -s release/TAUVSYNC-linux-x86_64-2.2.1.tar.gz
+          (cd release && sha256sum -c tauvsync_2.2.1_amd64.deb.sha256)
+          (cd release && sha256sum -c TAUVSYNC-linux-x86_64-2.2.1.tar.gz.sha256)
           (cd release && sha256sum TAUVSYNC.exe > TAUVSYNC.exe.sha256)
       - name: Create direct-download GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          VERSION=v2.2.0
+          VERSION=v2.2.1
           if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $VERSION already exists; not replacing immutable versioned assets."
             exit 0
@@ -96,10 +163,14 @@ jobs:
           gh release create "$VERSION" \
             release/TAUVSYNC.exe \
             release/TAUVSYNC.exe.sha256 \
-            release/TAUVSYNC-KiCad10-2.2.0.zip \
-            release/TAUVSYNC-KiCad10-2.2.0.zip.sha256 \
+            release/TAUVSYNC-KiCad10-2.2.1.zip \
+            release/TAUVSYNC-KiCad10-2.2.1.zip.sha256 \
+            release/tauvsync_2.2.1_amd64.deb \
+            release/tauvsync_2.2.1_amd64.deb.sha256 \
+            release/TAUVSYNC-linux-x86_64-2.2.1.tar.gz \
+            release/TAUVSYNC-linux-x86_64-2.2.1.tar.gz.sha256 \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "TAUV Client 2.2.0 — Windows beta" \
-            --notes "TAUV Client 2.2.0: server-enforced exclusive project editing locks, 30-second lease renewal, locked-by-owner indicators, and safe release controls. Requires matching TAUVSYNC lock-enabled Oracle backend; deploy the backend before using this EXE to edit cloud projects. Other users can still view/download revisions. Local offline files cannot be made immutable. Windows 10/11 x64 with KiCad 10; no separate Python/Git/SSH. Install TAUVSYNC-KiCad10-2.2.0.zip via KiCad PCM for plugin integration. Unsigned beta; keep the app running or minimized to maintain the lock." \
+            --title "TAUV Client 2.2.1 — Windows and Ubuntu 22.04 beta" \
+            --notes "TAUV Client 2.2.1: background GitHub release checks on every launch (beta releases included), browser-based update downloads, plus server-enforced exclusive project editing locks, 30-second lease renewal, locked-by-owner indicators, and safe release controls. Requires matching TAUVSYNC lock-enabled Oracle backend; deploy the backend before using this EXE to edit cloud projects. Other users can still view/download revisions. Local offline files cannot be made immutable. Windows 10/11 x64 and Ubuntu 22.04 amd64 with KiCad 10; no separate Python/Git/SSH. Linux .deb and portable tar.gz included; see docs/LINUX-UBUNTU22.04.md. Install TAUVSYNC-KiCad10-2.2.1.zip via KiCad PCM for plugin integration. Unsigned beta; keep the app running or minimized to maintain the lock." \
             --prerelease

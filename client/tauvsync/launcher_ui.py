@@ -13,6 +13,7 @@ from pathlib import Path
 import queue
 import threading
 import time
+import webbrowser
 from tkinter import filedialog, messagebox
 from typing import Any, Callable
 
@@ -23,9 +24,11 @@ from .api import PrismAPI, APIError
 from .app import DEFAULT_SERVER, LOGO_PATH, load_preferences, open_kicad, save_preferences, find_project_file
 from .credentials import load_login, store_login, forget_login, CredentialStoreUnavailable
 from .instance import AlreadyRunning, single_instance, focus_existing_window
+from .kicad_launcher import open_project_directory
 from .project_templates import create_cloud_project
 from .sync import SyncEngine, editor_running, unavailable_cloud_status
 from .workspace_data import next_available_name, reconcile_projects, latest_authors, synced_status_label
+from .update_check import APP_VERSION, check_for_update
 
 BG = "#08090b"
 CARD = "#0c0d10"
@@ -93,12 +96,21 @@ class Workspace(ctk.CTk):
         self._logo_image = _logo(36)
         self._make_widgets()
         self.after(120, self._consume)
+        self.after(400, self._check_updates_on_launch)
         previous_email = self.settings.get("email", "")
         previous_url = self.settings.get("url") or DEFAULT_SERVER
         if self.settings.get("remember") and previous_email:
             secret = load_login(previous_url, previous_email)
             if secret:
                 self.after(250, lambda: self._login(secret))
+
+    def _check_updates_on_launch(self):
+        """Check once per launch without delaying login or synchronization."""
+        def worker():
+            update = check_for_update()
+            if update and not self.stop.is_set():
+                self.events.put(("update_available", update))
+        threading.Thread(target=worker, daemon=True).start()
 
     def _text(self, parent, value, size=14, weight="normal", color=WHITE, **kwargs):
         return ctk.CTkLabel(
@@ -191,7 +203,7 @@ class Workspace(ctk.CTk):
 
         buttons = ctk.CTkFrame(self.main, fg_color="transparent")
         buttons.pack(fill="x", padx=18, pady=(0, 16))
-        buttons.grid_columnconfigure((0, 1), weight=1)
+        buttons.grid_columnconfigure((0, 1, 2), weight=1)
         self.new_button = ctk.CTkButton(
             buttons, text="⊕   New Project", height=53, fg_color="#121419",
             hover_color=HOVER, border_width=1, border_color=EDGE, command=self._new_project,
@@ -203,7 +215,15 @@ class Workspace(ctk.CTk):
             hover_color=HOVER, border_width=1, border_color=EDGE, command=self._open_selected,
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
         )
-        self.open_button.grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        self.open_button.grid(row=0, column=1, sticky="ew", padx=(4, 4))
+        self.open_folder_button = ctk.CTkButton(
+            buttons, text="Open Folder", height=53, fg_color="#121419",
+            hover_color=HOVER, border_width=1, border_color=EDGE,
+            command=self._open_selected_folder,
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+        )
+        self.open_folder_button.grid(row=0, column=2, sticky="ew", padx=(4, 0))
+        self.open_folder_button.configure(state="disabled")
         small = ctk.CTkFrame(self.main, fg_color="transparent")
         small.pack(fill="x", padx=18, pady=(0, 16))
         for text, action in (
@@ -250,6 +270,17 @@ class Workspace(ctk.CTk):
                     self.busy = False
                     self._set_status("Operation failed: " + str(event[1]))
                     messagebox.showerror("TAUV", str(event[1]), parent=self)
+                elif event[0] == "update_available":
+                    update = event[1]
+                    if messagebox.askyesno(
+                        "TAUVSYNC — Update available",
+                        f"TAUVSYNC {update.version} is available.\n"
+                        f"Installed version: {APP_VERSION}\n\n"
+                        "Open the official GitHub release page to download?\n"
+                        "TAUVSYNC will not replace its executable or change your projects.",
+                        parent=self,
+                    ):
+                        webbrowser.open(update.release_url)
                 elif event[0] == "poll":
                     self.projects, self.authors = event[1], event[2]
                     self.connection.configure(text="Connected")
@@ -296,20 +327,28 @@ class Workspace(ctk.CTk):
             projects = reconcile_projects(api.projects(), engine.local_projects())
             authors = latest_authors(api, projects, {})
             # Persist settings only after successful login and server discovery.
-            save_preferences(url, folder, email, remember)
-            if remember:
-                store_login(url, email, password)
+            credential_warning = ""
+            saved_remember = remember
+            if saved_remember:
+                try:
+                    store_login(url, email, password)
+                except (OSError, CredentialStoreUnavailable):
+                    credential_warning = "Secure login storage unavailable; enter password next time."
+                    saved_remember = False
             else:
-                forget_login()
-            return api, user, engine, projects, authors
+                forget_login(url, email)
+            save_preferences(url, folder, email, saved_remember)
+            return api, user, engine, projects, authors, credential_warning
         def complete(result):
-            self.api, self.user, self.engine, self.projects, self.authors = result
+            self.api, self.user, self.engine, self.projects, self.authors, credential_warning = result
             self.connected = True
             self.connection.configure(text=email + "  •  Connected")
             self.login_panel.pack_forget()
             self.main.pack(fill="both", expand=True)
             self._draw_projects()
-            self._set_status("Connected. TAUV syncs while this window is open or minimized.")
+            self._set_status(
+                credential_warning or "Connected. TAUV syncs while this window is open or minimized."
+            )
             threading.Thread(target=self._poll_loop, daemon=True).start()
         self._task("Signing in to TAUV…", work, complete)
 
@@ -458,6 +497,11 @@ class Workspace(ctk.CTk):
             self.rows.append(empty)
         self.new_button.configure(state="normal" if self.user.get("role") in ("designer", "admin") else "disabled")
         self.open_button.configure(state="normal" if self._selected() else "disabled")
+        selected = self._selected()
+        local = self.engine.local_projects() if self.engine else {}
+        self.open_folder_button.configure(
+            state="normal" if selected and selected["id"] in local else "disabled"
+        )
 
     def _selected(self) -> dict | None:
         return next((p for p in self.projects if p["id"] == self.selected_id), None)
@@ -473,6 +517,7 @@ class Workspace(ctk.CTk):
             self.project_name.configure(text="Project removed from server")
             self.project_info.configure(text="No cloud entry. Local copies are preserved.")
             self.sync_badge.pack_forget()
+            self.open_folder_button.configure(state="disabled")
             self.preview.configure(text="No preview", image=None)
             return
         pid = project["id"]
@@ -482,6 +527,9 @@ class Workspace(ctk.CTk):
             info += "  •  Author: " + str(author)
         local = self.engine.local_projects() if self.engine else {}
         info += "  •  " + ("Downloaded" if pid in local else "Cloud only")
+        self.open_folder_button.configure(
+            state="normal" if pid in local else "disabled"
+        )
         lease = project.get("edit_lock") or {}
         if lease.get("owner"):
             info += ("\nEditing lock: yours" if self.api and self.api.has_edit_lock(pid)
@@ -614,6 +662,33 @@ class Workspace(ctk.CTk):
             self._task("Creating KiCad project and first cloud revision…", work, done)
         ctk.CTkButton(dialog, text="Create project", height=42, command=create).pack(fill="x", padx=24, pady=(12, 0))
         name.focus_set()
+
+    def _open_selected_folder(self):
+        """Open a previously checked-out project without changing its lock or sync state."""
+        project = self._selected()
+        if not project or not self.engine:
+            self._set_status("Select a downloaded project first.")
+            return
+        pid = project["id"]
+        if pid not in self.engine.local_projects():
+            messagebox.showinfo(
+                "TAUV — No local copy",
+                "This project has not been downloaded yet. Use Open in KiCad "
+                "to create a managed local copy first.",
+                parent=self,
+            )
+            return
+        try:
+            folder = self.engine.folder(pid)
+            open_project_directory(folder)
+        except (OSError, ValueError) as error:
+            messagebox.showerror(
+                "TAUV — Open folder failed",
+                "Could not open the local project directory.\n\n" + str(error),
+                parent=self,
+            )
+            return
+        self._set_status("Opened local project folder: " + str(folder))
 
     def _open_selected(self):
         project = self._selected()
