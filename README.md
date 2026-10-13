@@ -22,6 +22,7 @@ The standalone EXE and KiCad plugin are **two ways to open the same TAUV workspa
 3. Run `TAUVSYNC.exe`, sign in using **your own authorized TAUVSYNC team account**, and choose a local workspace directory.
 4. Browse shared projects or select **New Project** to create the first cloud revision without using KiCad first.
 5. Use **Open in KiCad** to download the managed copy, if necessary, and open it specifically in **KiCad 10**. Keep TAUV running or minimized while editing for synchronization.
+6. Once downloaded, select a project and click **Open Folder** to view its managed checkout in Windows Explorer. Cloud-only projects have this action disabled; locally retained copies of removed projects can still be opened. This does not acquire a lock or synchronize edits.
 
 ### Optional KiCad 10 toolbar extension
 
@@ -40,6 +41,7 @@ The standalone EXE and KiCad plugin are **two ways to open the same TAUV workspa
 - **Shared workspace:** Browse and search project names, revisions and the latest revision author.
 - **PCB previews:** Reuses cached PCB thumbnails already rendered by the Prism server; new/blank projects may have no thumbnail yet.
 - **Open in KiCad 10:** Uses KiCad 10's executable instead of Windows' default `.kicad_pro` association, which may point to KiCad 9.
+- **Open Folder:** Opens the selected project's existing managed local directory in Windows Explorer without creating, downloading, modifying, or syncing project data. Available only after a local checkout exists.
 - **Import Existing:** Copies an existing local KiCad project into a separate managed checkout; original files remain unchanged.
 - **Duplicate naming:** New or imported projects get names such as `Buck (1)` or `Buck (2)` when needed. Histories are not merged automatically.
 - **Automatic synchronization:** Detects saved changes and remote revisions while TAUV is running, preserving divergent/local edits rather than overwriting them silently.
