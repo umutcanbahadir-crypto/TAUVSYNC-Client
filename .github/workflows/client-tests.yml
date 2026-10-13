@@ -1,6 +1,10 @@
 name: TAUVSYNC client tests
 on:
   push:
+    branches:
+      - "**"
+    tags:
+      - "client-v*"
   pull_request:
 permissions:
   contents: read
@@ -16,5 +20,86 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Check public client for credentials
+        run: python scripts/check_public_secrets.py
       - run: python -m unittest discover -s client/tests -v
-      - run: python -m compileall -q client
+      - run: python -m compileall -q client packaging
+      - name: Build bundled TAUVSYNC executable
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install pyinstaller kicad-python==0.8.0 customtkinter==5.2.2 pillow==11.3.0
+          python scripts/generate_windows_icon.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --icon client/tauvsync/resources/tauv_app.ico --name TAUVSYNC --paths client --collect-all customtkinter --add-data "client/tauvsync/resources;tauvsync/resources" client/launcher.py
+          python packaging/build_pcm.py
+          python -m pip install jsonschema
+          python packaging/validate_pcm.py dist/TAUVSYNC-KiCad10-2.1.1.zip
+      - name: Smoke-test the actual packaged Windows executable
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $exe = (Resolve-Path "dist/TAUVSYNC.exe").Path
+          $log = Join-Path $env:LOCALAPPDATA "TAUVSYNC/logs/launcher.log"
+          $proc = Start-Process -FilePath $exe -ArgumentList "--self-test" -PassThru
+          if (-not $proc.WaitForExit(120000)) {
+            if (Test-Path $log) { Get-Content $log }
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            throw "Frozen TAUV executable self-test timed out after 120 seconds"
+          }
+          if (Test-Path $log) { Get-Content $log }
+          if ($proc.ExitCode -ne 0) { throw "Frozen TAUV executable failed runtime test: exit code $($proc.ExitCode)" }
+          if (!(Test-Path $log) -or !(Select-String -Path $log -Pattern 'SELF-TEST OK' -Quiet)) { throw "Frozen executable did not complete its runtime self-test" }
+      - name: Upload KiCad PCM test package
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: TAUVSYNC-KiCad10-Windows-testing
+          path: |
+            dist/TAUVSYNC.exe
+            dist/TAUVSYNC-KiCad10-*.zip
+            dist/TAUVSYNC-KiCad10-*.zip.sha256
+          if-no-files-found: error
+
+  release:
+    name: Publish direct Windows EXE download
+    # Only the tested main-branch build is published; PRs and feature branches
+    # never create public release assets.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: TAUVSYNC-KiCad10-Windows-testing
+          path: release
+      - name: Verify assets and create EXE checksum
+        run: |
+          set -euo pipefail
+          test -s release/TAUVSYNC.exe
+          test -s release/TAUVSYNC-KiCad10-2.1.1.zip
+          test -s release/TAUVSYNC-KiCad10-2.1.1.zip.sha256
+          (cd release && sha256sum TAUVSYNC.exe > TAUVSYNC.exe.sha256)
+      - name: Create direct-download GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION=v2.1.1
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists; not replacing immutable versioned assets."
+            exit 0
+          fi
+          gh release create "$VERSION" \
+            release/TAUVSYNC.exe \
+            release/TAUVSYNC.exe.sha256 \
+            release/TAUVSYNC-KiCad10-2.1.1.zip \
+            release/TAUVSYNC-KiCad10-2.1.1.zip.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "TAUV Client 2.1.1 — Windows beta" \
+            --notes "Standalone TAUV Team Workspace for Windows 10/11 x64 with KiCad 10 support. Download TAUVSYNC.exe and run it directly (no Python/Git/SSH required). For the KiCad toolbar extension, install TAUVSYNC-KiCad10-2.1.1.zip using KiCad Plugin and Content Manager. Requires an authorized account on the separate TAUVSYNC server. Unsigned beta; keep the app open/minimized for synchronization." \
+            --prerelease

@@ -47,3 +47,25 @@ def single_instance():
                 yield
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def focus_existing_window(title: str) -> bool:
+    """Best-effort focus for an already running Windows TAUV dashboard.
+
+    Launching the plugin again must not create a second sync engine. This
+    helper does not require pywin32 or elevated privileges.
+    """
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.FindWindowW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
+    user32.FindWindowW.restype = ctypes.c_void_p
+    hwnd = user32.FindWindowW(None, title)
+    if not hwnd:
+        return False
+    user32.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    user32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+    user32.ShowWindow(hwnd, 9)  # SW_RESTORE: restore a minimized dashboard
+    user32.SetForegroundWindow(hwnd)
+    return True

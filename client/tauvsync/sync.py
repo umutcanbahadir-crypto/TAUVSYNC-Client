@@ -47,9 +47,9 @@ def unavailable_cloud_status(remote: dict | None) -> str | None:
     if remote is None:
         return "No longer available in cloud; local copy preserved (sync paused)"
     if remote.get("cloud_state") == "missing_prism":
-        return "Deleted in Prism; local copy preserved (sync paused)"
+        return "Removed from TAUV cloud; local copy preserved (sync paused)"
     if remote.get("cloud_state") == "unregistered":
-        return "Not registered in Prism; local copy preserved (sync paused)"
+        return "Not registered in TAUV cloud; local copy preserved (sync paused)"
     return None
 
 
@@ -204,8 +204,14 @@ def editor_running() -> bool:
     """Conservative: block incoming replacements whenever ANY KiCad editor runs."""
     try:
         if sys.platform == "win32":
-            p = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
-                               capture_output=True, text=True, timeout=5)
+            # tasklist.exe is a console program.  A windowed PyInstaller
+            # application has no console to inherit, so spawning tasklist
+            # without this flag flashes a new terminal at every sync poll.
+            p = subprocess.run(
+                ["tasklist", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True, timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+            )
             return any('"' + process + '"' in p.stdout.casefold()
                        for process in ("pcbnew.exe", "eeschema.exe"))
         p = subprocess.run(["pgrep", "-f", r"(^|/)(pcbnew|eeschema)( |$)"],

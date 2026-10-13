@@ -1,0 +1,27 @@
+{
+  "$schema": "https://go.kicad.org/api/schemas/v1",
+  "identifier": "com.github.umutcanbahadir-crypto.tauvsync",
+  "name": "TAUV Team Projects",
+  "description": "Open TAUV cloud projects and synchronize KiCad designs.",
+  "runtime": {
+    "type": "exec"
+  },
+  "actions": [
+    {
+      "identifier": "team-projects",
+      "name": "TAUV Team Projects",
+      "description": "Browse and synchronize team KiCad projects",
+      "show-button": true,
+      "scopes": [
+        "pcb"
+      ],
+      "entrypoint": "TAUVSYNC.exe",
+      "icons-light": [
+        "tauv_transparent_24.png"
+      ],
+      "icons-dark": [
+        "tauv_transparent_24.png"
+      ]
+    }
+  ]
+}

@@ -87,7 +87,60 @@ class PrismAPI:
             self.cookies.clear()
 
     def projects(self) -> list[dict]:
-        return self._json("/api/tauvsync/projects")
+        """Return live TAUV projects and reconcile registrations with Prism.
+
+        No-cache headers prevent intermediary caches retaining deleted rows.
+        Prism's registry is authoritative; an unavailable registry endpoint
+        falls back to the existing TAUVSYNC cloud_state rather than hiding
+        projects speculatively.
+        """
+        with self._request(
+            "/api/tauvsync/projects",
+            headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+        ) as response:
+            projects = json.load(response)
+        if not isinstance(projects, list):
+            raise APIError("Invalid cloud project listing")
+        try:
+            with self._request(
+                "/api/projects/",
+                headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+            ) as response:
+                registered = json.load(response)
+            if not isinstance(registered, list):
+                raise ValueError("Invalid Prism registry")
+            active_ids = {str(p["id"]) for p in registered if isinstance(p, dict) and p.get("id")}
+        except (APIError, ValueError, KeyError):
+            return projects
+
+        for item in projects:
+            prism_id = item.get("prism_project_id")
+            if prism_id and str(prism_id) not in active_ids:
+                item["cloud_state"] = "missing_prism"
+        return projects
+
+    def thumbnail(self, prism_project_id: str, *, max_bytes: int = 8 * 1024 * 1024) -> bytes | None:
+        """Fetch a registered Prism project's cached PCB thumbnail.
+
+        A missing preview is normal for a newly created/empty project.
+        Never pull large binary data into the UI or follow cross-origin redirects.
+        """
+        project = str(prism_project_id)
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", project):
+            raise ValueError("Invalid Prism project identifier")
+        try:
+            with self._request(f"/api/projects/{project}/thumbnail") as response:
+                content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+                if content_type not in ("image/png", "image/jpeg", "image/webp"):
+                    raise APIError("Server returned an unsupported preview format")
+                raw = response.read(max_bytes + 1)
+                if len(raw) > max_bytes:
+                    raise APIError("Project preview exceeds 8 MiB")
+                return raw
+        except APIError as error:
+            if error.status == 404:
+                return None
+            raise
 
     def revisions(self, project_id: str) -> list[dict]:
         return self._json(f"/api/tauvsync/projects/{_id(project_id)}/revisions")
@@ -106,6 +159,20 @@ class PrismAPI:
         except Exception:
             target.unlink(missing_ok=True)
             raise
+
+    def _check_gateway_upload(self, total_bytes: int) -> None:
+        """Avoid guaranteed HTTP 413 from the team's Free-plan Worker URL.
+
+        The server supports larger archives, but the HTTPS gateway rejects
+        requests greater than 100 million bytes on the present Free tier.
+        """
+        parsed = urllib.parse.urlsplit(self.base)
+        if parsed.hostname == "tauvsync-gateway.umutcanbahadir.workers.dev" and total_bytes > 100_000_000:
+            raise APIError(
+                "Project ZIP exceeds the current TAUV Cloudflare gateway's 100 MB "
+                "upload limit. No upload was attempted; local files are safe.",
+                status=413,
+            )
 
     def create(self, name: str, archive: Path) -> dict:
         """Create a cloud project from an existing complete KiCad project ZIP."""
@@ -134,6 +201,7 @@ class PrismAPI:
                     yield piece
             yield footer
 
+        self._check_gateway_upload(len(header) + size + len(footer))
         with self._request("/api/tauvsync/projects", method="POST",
                            data=chunks(), headers={
                                "Content-Type": f"multipart/form-data; boundary={boundary}",
@@ -163,12 +231,24 @@ class PrismAPI:
                 while piece := inp.read(1024 * 1024):
                     yield piece
             yield footer
+        self._check_gateway_upload(len(header) + size + len(footer))
         path = f"/api/tauvsync/projects/{_id(project_id)}/revisions"
         with self._request(path, method="POST", data=chunks(), headers={
             "Content-Type": f"multipart/form-data; boundary={boundary}",
             "Content-Length": str(len(header) + size + len(footer)),
         }) as response:
             return json.load(response)
+
+    def restore(self, project_id: str, revision: int) -> dict:
+        """Restore an historical snapshot as a new current revision.
+
+        The server preserves all previous revisions; this operation requires a
+        deliberate user confirmation in the UI and Designer/Admin permission.
+        """
+        return self._json(
+            f"/api/tauvsync/projects/{_id(project_id)}/revisions/{int(revision)}/restore",
+            method="POST", payload={},
+        )
 
 
 class _SameOriginRedirect(urllib.request.HTTPRedirectHandler):

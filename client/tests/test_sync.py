@@ -156,7 +156,7 @@ class SyncEngineTests(unittest.TestCase):
         self.schematic.write_text("local unsent changes")
         project = {**self.api.project(), "cloud_state": "missing_prism"}
         result = self.engine.poll(self.api.id, project, editors_open=False)
-        self.assertIn("Deleted in Prism", result)
+        self.assertIn("Removed from TAUV cloud", result)
         self.assertEqual(self.api.uploads, [])
         self.assertEqual(self.schematic.read_text(), "local unsent changes")
         self.assertEqual(self.engine._record(self.api.id)["base_revision"], 1)
