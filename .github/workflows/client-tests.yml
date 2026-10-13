@@ -36,10 +36,16 @@ jobs:
       - name: Smoke-test the actual packaged Windows executable
         if: runner.os == 'Windows'
         shell: pwsh
+        timeout-minutes: 3
         run: |
           $exe = (Resolve-Path "dist/TAUVSYNC.exe").Path
-          $proc = Start-Process -FilePath $exe -ArgumentList "--self-test" -Wait -PassThru
           $log = Join-Path $env:LOCALAPPDATA "TAUVSYNC/logs/launcher.log"
+          $proc = Start-Process -FilePath $exe -ArgumentList "--self-test" -PassThru
+          if (-not $proc.WaitForExit(120000)) {
+            if (Test-Path $log) { Get-Content $log }
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            throw "Frozen TAUV executable self-test timed out after 120 seconds"
+          }
           if (Test-Path $log) { Get-Content $log }
           if ($proc.ExitCode -ne 0) { throw "Frozen TAUV executable failed runtime test: exit code $($proc.ExitCode)" }
           if (!(Test-Path $log) -or !(Select-String -Path $log -Pattern 'SELF-TEST OK' -Quiet)) { throw "Frozen executable did not complete its runtime self-test" }
