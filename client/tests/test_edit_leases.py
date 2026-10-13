@@ -49,6 +49,16 @@ class ExclusiveEditClientTests(unittest.TestCase):
             self.assertEqual(error.exception.status, 423)
         request.assert_not_called()
 
+    def test_administrator_force_unlock_clears_stale_local_token(self):
+        self.api.edit_tokens[self.pid] = self.token
+        with mock.patch.object(self.api, "_json", return_value={"released": True}) as request:
+            self.api.force_release_edit_lock(self.pid)
+        self.assertFalse(self.api.has_edit_lock(self.pid))
+        request.assert_called_once_with(
+            f"/api/tauvsync/projects/{self.pid}/edit-lock/force",
+            method="DELETE", payload={},
+        )
+
     def test_restore_requires_token(self):
         self.api.edit_tokens[self.pid] = self.token
         with mock.patch.object(self.api, "_json", return_value={"number": 4}) as req:
